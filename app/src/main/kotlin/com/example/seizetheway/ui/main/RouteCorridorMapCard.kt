@@ -161,7 +161,7 @@ fun DedicatedMapTabScreen(
                                     modifier = Modifier.height(34.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.BookmarkCheck,
+                                        imageVector = Icons.Default.BookmarkAdded,
                                         contentDescription = null,
                                         tint = Color(0xFF2CE5C6),
                                         modifier = Modifier.size(15.dp)

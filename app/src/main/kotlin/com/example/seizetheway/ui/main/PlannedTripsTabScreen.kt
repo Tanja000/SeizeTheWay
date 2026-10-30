@@ -631,7 +631,7 @@ private fun ActiveTourCard(
                             .height(40.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.BookmarkCheck,
+                            imageVector = Icons.Default.BookmarkAdded,
                             contentDescription = null,
                             tint = Color(0xFF16A34A),
                             modifier = Modifier.size(16.dp)
