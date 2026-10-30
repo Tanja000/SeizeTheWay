@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Subtle mountain silhouette -->
+    <path
+        android:fillColor="#1A3C54"
+        android:pathData="M24,62 L36,48 L44,56 L52,44 L64,62 Z" />
+
+    <!-- Pine trees along the route -->
+    <path
+        android:fillColor="#2CE5C6"
+        android:pathData="M68,48 L72,55 L70,55 L73,60 L63,60 L66,55 L64,55 Z" />
+    <path
+        android:fillColor="#FFB347"
+        android:pathData="M31,58 L35,65 L33,65 L36,70 L26,70 L29,65 L27,65 Z" />
+
+    <!-- Glowing winding road from bottom-left up to the compass pin -->
+    <path
+        android:strokeWidth="8.5"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:fillColor="#00000000"
+        android:pathData="M30,84 C34,74 68,72 68,61 C68,51 38,53 40,44 C42,36 58,36 66,27">
+        <aapt:attr name="android:strokeColor">
+            <gradient
+                android:startX="30"
+                android:startY="84"
+                android:endX="68"
+                android:endY="27"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF7B29" />
+                <item android:offset="0.5" android:color="#FFD15C" />
+                <item android:offset="1.0" android:color="#2CE5C6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Center road stripe -->
+    <path
+        android:strokeWidth="2.0"
+        android:strokeLineCap="round"
+        android:strokeColor="#0B1628"
+        android:fillColor="#00000000"
+        android:pathData="M30,84 C34,74 68,72 68,61 C68,51 38,53 40,44 C42,36 58,36 66,27" />
+
+    <!-- Location Pin / Compass Halo at top-right -->
+    <path
+        android:pathData="M66,18 C58.2,18 52,24.2 52,32 C52,41.5 66,53 66,53 C66,53 80,41.5 80,32 C80,24.2 73.8,18 66,18 Z M66,37 C63.2,37 61,34.8 61,32 C61,29.2 63.2,27 66,27 C68.8,27 71,29.2 71,32 C71,34.8 68.8,37 66,37 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="52"
+                android:startY="45"
+                android:endX="80"
+                android:endY="18"
+                android:type="linear">
+                <item android:offset="0.0" android:color="#FF9E44" />
+                <item android:offset="0.5" android:color="#FFE066" />
+                <item android:offset="1.0" android:color="#2CE5C6" />
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Discovery stars -->
+    <path
+        android:fillColor="#FFE066"
+        android:pathData="M46,32 L48,35 L51,37 L48,39 L46,42 L44,39 L41,37 L44,35 Z" />
+    <path
+        android:fillColor="#2CE5C6"
+        android:pathData="M54,64 L55.5,66 L57.5,67.5 L55.5,69 L54,71 L52.5,69 L50.5,67.5 L52.5,66 Z" />
+</vector>
