@@ -110,7 +110,7 @@ enum class WayCategory(
         subtitleEn = "Lakes, waterfalls, peaks, parks & scenic viewpoints",
         color = Color(0xFF10B981),
         secondaryColor = Color(0xFF047857),
-        defaultKeywords = listOf("natur", "see", "wasserfall", "aussicht", "gipfel", "park", "wald", "klamm", "berg", "felsen")
+        defaultKeywords = listOf("natur", "nature", "see", "lake", "wasserfall", "waterfall", "aussicht", "viewpoint", "gipfel", "peak", "park", "wald", "forest", "klamm", "gorge", "berg", "felsen", "quelle", "spring")
     ),
     ERLEBNIS(
         id = "erlebnis",
@@ -122,7 +122,7 @@ enum class WayCategory(
         subtitleEn = "Theme parks, climbing forests, thermal baths, zoo & action",
         color = Color(0xFFF59E0B),
         secondaryColor = Color(0xFFB45309),
-        defaultKeywords = listOf("erlebnis", "freizeitpark", "kletterwald", "therme", "zoo", "sommerrodelbahn", "abenteuer", "wildpark", "aquarium")
+        defaultKeywords = listOf("erlebnis", "adventure", "freizeitpark", "theme park", "kletterwald", "climbing", "therme", "spa", "zoo", "sommerrodelbahn", "toboggan", "abenteuer", "wildpark", "aquarium", "seilbahn")
     ),
     TAGESEVENTS(
         id = "tagesevents",
@@ -134,7 +134,7 @@ enum class WayCategory(
         subtitleEn = "Concerts, festivals, markets, open-air & live stages",
         color = Color(0xFFEC4899),
         secondaryColor = Color(0xFF9D174D),
-        defaultKeywords = listOf("event", "festival", "konzert", "markt", "bühne", "veranstaltung", "ausstellung", "festspiele", "show")
+        defaultKeywords = listOf("event", "festival", "konzert", "concert", "markt", "market", "bühne", "stage", "veranstaltung", "ausstellung", "festspiele", "show", "open-air")
     ),
     KOSTENLOSES(
         id = "kostenloses",
@@ -146,7 +146,7 @@ enum class WayCategory(
         subtitleEn = "Free admission, panorama spots, swimming lakes & art",
         color = Color(0xFF06B6D4),
         secondaryColor = Color(0xFF0E7490),
-        defaultKeywords = listOf("kostenlos", "gratis", "eintritt frei", "panorama", "aussichtspunkt", "park", "skulptur", "lehrpfad", "badesee")
+        defaultKeywords = listOf("kostenlos", "free", "gratis", "eintritt frei", "panorama", "aussichtspunkt", "viewpoint", "park", "skulptur", "lehrpfad", "badesee", "spielplatz")
     ),
     CAFES(
         id = "cafes",
@@ -158,7 +158,7 @@ enum class WayCategory(
         subtitleEn = "Coffee roasteries, farm cafés, cake & ice cream",
         color = Color(0xFFA855F7),
         secondaryColor = Color(0xFF6B21A8),
-        defaultKeywords = listOf("cafe", "café", "kaffee", "kuchen", "rösterei", "eis", "konditorei", "espresso", "hofcafe")
+        defaultKeywords = listOf("cafe", "café", "kaffee", "coffee", "kuchen", "cake", "rösterei", "roastery", "eis", "ice cream", "eisdiele", "konditorei", "bäckerei", "bakery", "espresso", "hofcafe")
     ),
     RESTAURANTS(
         id = "restaurants",
@@ -170,7 +170,7 @@ enum class WayCategory(
         subtitleEn = "Regional cuisine, beer gardens, inns & culinary delights",
         color = Color(0xFFEF4444),
         secondaryColor = Color(0xFFB91C1C),
-        defaultKeywords = listOf("restaurant", "biergarten", "gasthof", "wirtshaus", "küche", "essen", "alm", "weingut", "bistro")
+        defaultKeywords = listOf("restaurant", "biergarten", "beer garden", "gasthof", "wirtshaus", "küche", "essen", "alm", "weingut", "winery", "brauerei", "brewery", "bistro")
     ),
     WANDERUNGEN(
         id = "wanderungen",
@@ -182,7 +182,7 @@ enum class WayCategory(
         subtitleEn = "Hiking trails, gorges, mountain huts & loop trails",
         color = Color(0xFF84CC16),
         secondaryColor = Color(0xFF3F6212),
-        defaultKeywords = listOf("wanderung", "wanderweg", "pfad", "klamm", "schlucht", "hütte", "alm", "rundweg", "steig", "trail")
+        defaultKeywords = listOf("wanderung", "hike", "wanderweg", "pfad", "klamm", "schlucht", "hütte", "hut", "alm", "rundweg", "steig", "trail", "gipfelweg")
     ),
     HISTORISCHES(
         id = "historisches",
@@ -194,7 +194,7 @@ enum class WayCategory(
         subtitleEn = "Castles, palaces, ruins, monuments & old towns",
         color = Color(0xFFD97706),
         secondaryColor = Color(0xFF92400E),
-        defaultKeywords = listOf("burg", "schloss", "ruine", "denkmal", "historisch", "altstadt", "kloster", "festung", "römer", "mittelalter")
+        defaultKeywords = listOf("burg", "castle", "schloss", "palace", "ruine", "ruins", "denkmal", "monument", "historisch", "historic", "altstadt", "kloster", "monastery", "festung", "römer", "mittelalter", "kirche")
     ),
     KULTURELLES(
         id = "kulturelles",
@@ -206,10 +206,11 @@ enum class WayCategory(
         subtitleEn = "Museums, galleries, theaters, architecture & arts",
         color = Color(0xFF6366F1),
         secondaryColor = Color(0xFF3730A3),
-        defaultKeywords = listOf("kultur", "museum", "galerie", "theater", "kunst", "architektur", "oper", "ausstellung", "stiftung")
+        defaultKeywords = listOf("kultur", "culture", "museum", "galerie", "gallery", "theater", "theatre", "kunst", "art", "architektur", "oper", "ausstellung", "stiftung")
     );
 
     fun localizedLabel(lang: AppLanguage): String = if (lang.isGerman) label else labelEn
+    fun localizedShortLabel(lang: AppLanguage): String = if (lang.isGerman) shortLabel else shortLabelEn
     fun localizedSubtitle(lang: AppLanguage): String = if (lang.isGerman) subtitle else subtitleEn
 }
 
@@ -332,6 +333,9 @@ data class RouteDiscoveryItem(
     val title: String,
     val subtitle: String,
     val description: String,
+    val titleEn: String = "",
+    val subtitleEn: String = "",
+    val descriptionEn: String = "",
     val category: WayCategory,
     val additionalCategories: Set<WayCategory> = emptySet(),
     val point: GeoPoint,
@@ -341,6 +345,7 @@ data class RouteDiscoveryItem(
     val routeProgressFraction: Float,
     val isFree: Boolean = false,
     val eventDateText: String? = null,
+    val eventDateTextEn: String? = null,
     val openingHours: String? = null,
     val websiteUrl: String? = null,
     val wikipediaUrl: String? = null,

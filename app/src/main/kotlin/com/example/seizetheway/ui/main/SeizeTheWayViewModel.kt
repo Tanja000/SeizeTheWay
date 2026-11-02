@@ -48,7 +48,7 @@ data class SeizeTheWayUiState(
     val displayedItems: List<RouteDiscoveryItem> = emptyList(),
     val plannedStopIds: Set<String> = emptySet(),
     val savedTrips: List<SavedTrip> = emptyList(),
-    val tripNotesDraft: String = "Picknickdecke, Kamera & passende Ausrüstung einpacken",
+    val tripNotesDraft: String = "",
     val selectedDetailItem: RouteDiscoveryItem? = null,
     val highlightedMapItemId: String? = null,
     val appLanguage: AppLanguage = AppLanguage.DE,
@@ -91,7 +91,9 @@ data class SeizeTheWayUiState(
             displayedItems
         } else {
             displayedItems.filter {
-                it.category == activeResultCategoryTab || activeResultCategoryTab in it.additionalCategories
+                it.category == activeResultCategoryTab ||
+                        activeResultCategoryTab in it.additionalCategories ||
+                        it.matchedKeywords.isNotEmpty()
             }
         }
 }
@@ -107,6 +109,7 @@ class SeizeTheWayViewModel(
     private var trackUpdateJob: Job? = null
     private var originSuggestJob: Job? = null
     private var destSuggestJob: Job? = null
+    private var keywordFetchJob: Job? = null
 
     init {
         executeRouteSearch(switchToResultsTab = false)
@@ -561,6 +564,29 @@ class SeizeTheWayViewModel(
             val updated = state.copy(keywordsQuery = keywords)
             recomputeDisplayedItems(updated)
         }
+        keywordFetchJob?.cancel()
+        val cleanKw = keywords.trim()
+        val currentRoute = _uiState.value.route
+        if (cleanKw.length >= 3 && currentRoute != null) {
+            keywordFetchJob = viewModelScope.launch {
+                kotlinx.coroutines.delay(320)
+                try {
+                    val fetchRadiusKm = _uiState.value.maxDetourKm.toDouble().coerceAtLeast(18.0)
+                    val extraItems = service.fetchKeywordItemsAlongRoute(
+                        route = currentRoute,
+                        maxDetourKm = fetchRadiusKm,
+                        keywordsRaw = cleanKw
+                    )
+                    if (extraItems.isNotEmpty()) {
+                        _uiState.update { state ->
+                            val merged = (state.allCorridorItems + extraItems).distinctBy { it.id }
+                            recomputeDisplayedItems(state.copy(allCorridorItems = merged))
+                        }
+                    }
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     fun toggleKeywordChip(keyword: String) {
@@ -877,7 +903,7 @@ class SeizeTheWayViewModel(
                                 travelMode = current.travelMode,
                                 stops = selectedWaypoints,
                                 trackPolyline = trackWithStops.polyline,
-                                notes = "Kaffeepause auf halber Strecke, Natur-Spaziergang & Abendveranstaltung am Zielort."
+                                notes = ""
                             )
                         )
                     } else {
@@ -929,12 +955,17 @@ class SeizeTheWayViewModel(
                 } else {
                     val searchable = buildString {
                         append(item.title.lowercase()).append(" ")
+                        append(item.titleEn.lowercase()).append(" ")
                         append(item.subtitle.lowercase()).append(" ")
+                        append(item.subtitleEn.lowercase()).append(" ")
                         append(item.description.lowercase()).append(" ")
+                        append(item.descriptionEn.lowercase()).append(" ")
                         append(item.category.label.lowercase()).append(" ")
+                        append(item.category.labelEn.lowercase()).append(" ")
                         item.category.defaultKeywords.forEach { append(it).append(" ") }
                         item.additionalCategories.forEach { c ->
                             append(c.label.lowercase()).append(" ")
+                            append(c.labelEn.lowercase()).append(" ")
                             c.defaultKeywords.forEach { append(it).append(" ") }
                         }
                         item.tags.forEach { append(it.lowercase()).append(" ") }
@@ -943,11 +974,12 @@ class SeizeTheWayViewModel(
                 }
             }
             .filter { item ->
+                // Das eingegebene Stichwort wird ZUSÄTZLICH (||) zu den ausgewählten Kategorien gesucht:
                 val catOk = state.showAllCategories ||
                         item.category in state.selectedCategories ||
                         item.additionalCategories.any { it in state.selectedCategories }
-                val kwOk = if (keywords.isEmpty()) true else item.matchedKeywords.isNotEmpty()
-                catOk && kwOk
+                val kwOk = keywords.isNotEmpty() && item.matchedKeywords.isNotEmpty()
+                catOk || kwOk
             }
 
         val sorted = when (state.sortOrder) {

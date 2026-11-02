@@ -808,6 +808,15 @@ class RouteDiscoveryService {
                 keywords = keywords
             )
         }
+        val photonOsmDeferred = async {
+            queryPhotonOsmAlongCorridor(
+                anchorPoints = anchorPoints,
+                route = baseRoute,
+                maxDetourKm = maxDetourKm,
+                categories = effectiveCategories,
+                keywords = keywords
+            )
+        }
         val wikiDeferred = async {
             queryWikipediaAlongCorridor(
                 anchorPoints = anchorPoints,
@@ -850,11 +859,19 @@ class RouteDiscoveryService {
         }
 
         val (overpassItems, overpassReport) = overpassDeferred.await()
+        val photonOsmItems = photonOsmDeferred.await()
         val (wikiItems, wikiReport) = wikiDeferred.await()
         val (geoItems, geoReport) = geoapifyDeferred.await()
         val (tmItems, tmReport) = ticketmasterDeferred.await()
         val (ebItems, ebReport) = eventbriteDeferred.await()
         val (wdEvents, wdReport) = wikidataEventsDeferred.await()
+
+        val combinedOsmItems = overpassItems + photonOsmItems
+        val mergedOverpassReport = overpassReport.copy(
+            active = true,
+            resultsCount = combinedOsmItems.size,
+            statusMessage = "OpenStreetMap (Overpass & Photon): ${combinedOsmItems.size} POIs mit erweiterten OSM-Keys im ${maxDetourKm.roundToInt()}-km-Korridor geladen"
+        )
 
         // Step 5: Curated & Corridor-Synthesized highlights
         val curatedCorridorItems = CuratedCorridorCatalog.getCorridorHighlights(
@@ -863,7 +880,7 @@ class RouteDiscoveryService {
         )
 
         // Step 6: Merge, deduplicate, and enforce detourDistanceKm <= maxDetourKm
-        val mergedRaw = (overpassItems + wikiItems + wdEvents + geoItems + tmItems + ebItems + curatedCorridorItems)
+        val mergedRaw = (combinedOsmItems + wikiItems + wdEvents + geoItems + tmItems + ebItems + curatedCorridorItems)
             .filter { it.detourDistanceKm <= maxDetourKm + 0.05 }
             .filter { item ->
                 // Start- und Zielort selbst sind keine Zwischenstopps im Korridor
@@ -873,48 +890,36 @@ class RouteDiscoveryService {
             }
 
         val deduplicated = deduplicateDiscoveries(mergedRaw)
+
+        // Parallele bidirektionale Übersetzung (DE & EN) aller Ergebnisse aus Wikipedia, OSM, Wikidata etc.
+        val translatedDeduplicated = GermanTranslator.translateItemsBatch(deduplicated)
             .map { item -> enrichKeywordMatches(item, keywords) }
             .sortedWith(
                 compareByDescending<RouteDiscoveryItem> { it.matchedKeywords.size }
                     .thenBy { it.routeProgressFraction }
             )
 
-        // Automatische Übersetzung fremdsprachiger Ergebnisdaten ins Deutsche
-        val translatedDeduplicated = deduplicated.map { item ->
-            GermanTranslator.translateItem(item)
-        }
-
-        // Step 7: Apply Category & Keyword filters
+        // Step 7: Apply Category + Keyword filters:
+        // Das eingegebene Stichwort wird ZUSÄTZLICH (ODER-Verknüpfung) zu den ausgewählten Kategorien gesucht!
         val filtered = translatedDeduplicated.filter { item ->
             val categoryMatch = showAllCategories ||
                     item.category in effectiveCategories ||
                     item.additionalCategories.any { it in effectiveCategories }
 
-            val keywordMatch = if (keywords.isEmpty()) {
-                true
-            } else if (onlyStrictKeywordMatches) {
-                item.matchedKeywords.isNotEmpty()
-            } else {
-                item.matchedKeywords.isNotEmpty()
-            }
+            val keywordMatch = keywords.isNotEmpty() && item.matchedKeywords.isNotEmpty()
 
-            categoryMatch && keywordMatch
+            categoryMatch || keywordMatch
         }
 
-        val finalFiltered = if (filtered.isEmpty() && keywords.isNotEmpty() && !onlyStrictKeywordMatches) {
-            translatedDeduplicated.filter { item ->
-                showAllCategories ||
-                        item.category in effectiveCategories ||
-                        item.additionalCategories.any { it in effectiveCategories }
-            }
-        } else {
-            filtered
-        }
+        val finalFiltered = filtered.sortedWith(
+            compareByDescending<RouteDiscoveryItem> { it.matchedKeywords.size }
+                .thenBy { it.routeProgressFraction }
+        )
 
         val allReports = buildList {
             add(geocodingReport)
             addAll(routingReports)
-            add(overpassReport)
+            add(mergedOverpassReport)
             add(wikiReport)
             add(wdReport)
             add(geoReport)
@@ -938,7 +943,7 @@ class RouteDiscoveryService {
         keywords: List<String>
     ): Pair<List<RouteDiscoveryItem>, ApiStatusReport> = withContext(Dispatchers.IO) {
         val startMs = System.currentTimeMillis()
-        val radiusMeters = (maxDetourKm * 1000.0).roundToInt().coerceIn(1500, 35000)
+        val radiusMeters = (maxDetourKm * 1000.0).roundToInt().coerceIn(2000, 35000)
         val queryAnchors = if (anchorPoints.size <= 4) anchorPoints else listOf(
             anchorPoints.first(),
             anchorPoints[anchorPoints.size / 3],
@@ -950,51 +955,66 @@ class RouteDiscoveryService {
         for (pt in queryAnchors) {
             val around = "(around:$radiusMeters,${String.format(java.util.Locale.US, "%.4f", pt.lat)},${String.format(java.util.Locale.US, "%.4f", pt.lon)})"
             if (WayCategory.NATUR in categories || WayCategory.KOSTENLOSES in categories) {
-                clauses.add("node[\"tourism\"=\"viewpoint\"][\"name\"]$around;")
-                clauses.add("node[\"natural\"~\"waterfall|peak|cave_entrance|beach|spring\"][\"name\"]$around;")
-                clauses.add("way[\"leisure\"~\"nature_reserve|park\"][\"name\"]$around;")
+                clauses.add("nwr[\"tourism\"~\"viewpoint|picnic_site\"][\"name\"]$around;")
+                clauses.add("nwr[\"natural\"~\"waterfall|peak|cave_entrance|beach|spring|cliff|gorge|rock|arch\"][\"name\"]$around;")
+                clauses.add("nwr[\"waterway\"=\"waterfall\"][\"name\"]$around;")
+                clauses.add("nwr[\"leisure\"~\"nature_reserve|park|garden|bird_hide\"][\"name\"]$around;")
             }
             if (WayCategory.ERLEBNIS in categories) {
                 clauses.add("nwr[\"tourism\"~\"theme_park|zoo|aquarium|attraction\"][\"name\"]$around;")
-                clauses.add("nwr[\"leisure\"~\"water_park|high_ropes_course|escape_game\"][\"name\"]$around;")
+                clauses.add("nwr[\"leisure\"~\"water_park|high_ropes_course|summer_toboggan|miniature_golf|escape_game|swimming_area\"][\"name\"]$around;")
+                clauses.add("nwr[\"sport\"~\"climbing|paragliding|toboggan|canoe\"][\"name\"]$around;")
             }
             if (WayCategory.TAGESEVENTS in categories) {
-                clauses.add("nwr[\"amenity\"~\"events_venue|theatre|arts_centre|festival_grounds\"][\"name\"]$around;")
+                clauses.add("nwr[\"amenity\"~\"events_venue|theatre|arts_centre|festival_grounds|concert_hall|marketplace|cinema\"][\"name\"]$around;")
+                clauses.add("nwr[\"leisure\"~\"stadium|bandstand\"][\"name\"]$around;")
+            }
+            if (WayCategory.KOSTENLOSES in categories) {
+                clauses.add("nwr[\"fee\"=\"no\"][\"name\"]$around;")
             }
             if (WayCategory.CAFES in categories) {
-                clauses.add("node[\"amenity\"~\"cafe|ice_cream\"][\"name\"]$around;")
+                clauses.add("nwr[\"amenity\"~\"cafe|ice_cream\"][\"name\"]$around;")
+                clauses.add("nwr[\"shop\"~\"coffee|pastry|confectionery|chocolate|bakery\"][\"name\"]$around;")
             }
             if (WayCategory.RESTAURANTS in categories) {
-                clauses.add("node[\"amenity\"~\"restaurant|biergarten\"][\"name\"]$around;")
+                clauses.add("nwr[\"amenity\"~\"restaurant|biergarten|pub\"][\"name\"]$around;")
+                clauses.add("nwr[\"craft\"~\"brewery|winery|distillery\"][\"name\"]$around;")
             }
             if (WayCategory.WANDERUNGEN in categories) {
                 clauses.add("nwr[\"tourism\"~\"alpine_hut|wilderness_hut\"][\"name\"]$around;")
-                clauses.add("relation[\"route\"=\"hiking\"][\"name\"]$around;")
+                clauses.add("relation[\"route\"~\"hiking|foot\"][\"name\"]$around;")
+                clauses.add("way[\"highway\"=\"path\"][\"sac_scale\"][\"name\"]$around;")
             }
             if (WayCategory.HISTORISCHES in categories) {
-                clauses.add("nwr[\"historic\"~\"castle|ruins|monument|memorial|archaeological_site|monastery\"][\"name\"]$around;")
+                clauses.add("nwr[\"historic\"~\"castle|palace|ruins|monument|memorial|archaeological_site|monastery|fort|city_gate|tower|manor|church|wayside_shrine\"][\"name\"]$around;")
+                clauses.add("nwr[\"building\"~\"castle|cathedral|monastery|chapel\"][\"name\"]$around;")
             }
             if (WayCategory.KULTURELLES in categories) {
                 clauses.add("nwr[\"tourism\"~\"museum|gallery|artwork\"][\"name\"]$around;")
+                clauses.add("nwr[\"amenity\"~\"theatre|arts_centre|planetarium|library\"][\"name\"]$around;")
+                clauses.add("nwr[\"heritage\"][\"name\"]$around;")
             }
-            keywords.take(2).forEach { kw ->
+            keywords.take(4).forEach { kw ->
                 val safeKw = kw.replace("\"", "").replace("\\", "")
-                if (safeKw.length >= 3) {
+                if (safeKw.length >= 2) {
                     clauses.add("nwr[\"name\"~\"$safeKw\",i]$around;")
+                    clauses.add("nwr[\"description\"~\"$safeKw\",i]$around;")
+                    clauses.add("nwr[\"cuisine\"~\"$safeKw\",i]$around;")
                 }
             }
         }
 
-        val queryBody = "[out:json][timeout:8];(\n${clauses.take(28).joinToString("\n")}\n);out center 85;"
+        val queryBody = "[out:json][timeout:11];(\n${clauses.take(42).joinToString("\n")}\n);out center 110;"
         val endpoints = listOf(
             "https://overpass-api.de/api/interpreter",
+            "https://lz4.overpass-api.de/api/interpreter",
             "https://overpass.kumi.systems/api/interpreter"
         )
 
         for (endpoint in endpoints) {
             try {
                 val postData = "data=" + URLEncoder.encode(queryBody, "UTF-8")
-                val response = httpPost(endpoint, postData, timeoutMs = 8500)
+                val response = httpPost(endpoint, postData, timeoutMs = 10000)
                 val json = JSONObject(response)
                 val elements = json.optJSONArray("elements") ?: JSONArray()
                 val items = mutableListOf<RouteDiscoveryItem>()
@@ -1002,8 +1022,9 @@ class RouteDiscoveryService {
                 for (i in 0 until elements.length()) {
                     val el = elements.getJSONObject(i)
                     val tags = el.optJSONObject("tags") ?: continue
-                    val name = tags.optString("name", "").trim()
-                    if (name.length < 2) continue
+                    val nameDe = tags.optString("name:de", tags.optString("name", "")).trim()
+                    val nameEn = tags.optString("name:en", nameDe).trim()
+                    if (nameDe.length < 2) continue
 
                     val lat = if (el.has("lat")) el.optDouble("lat", Double.NaN)
                     else el.optJSONObject("center")?.optDouble("lat", Double.NaN) ?: Double.NaN
@@ -1011,41 +1032,46 @@ class RouteDiscoveryService {
                     else el.optJSONObject("center")?.optDouble("lon", Double.NaN) ?: Double.NaN
                     if (lat.isNaN() || lon.isNaN()) continue
 
-                    val pt = GeoPoint(lat, lon, name)
+                    val pt = GeoPoint(lat, lon, nameDe)
                     val proj = GeoMath.projectOntoRoute(pt, route.basePolyline)
                     if (proj.minDistanceKm > maxDetourKm) continue
 
-                    val (primaryCat, extraCats, subtitle, desc, isFree, tagPills) = classifyOsmTags(tags)
+                    val osmClass = classifyOsmTags(tags)
                     val detourMinutes = ((proj.minDistanceKm * 2.0 / route.travelMode.avgSpeedKmh) * 60.0).roundToInt().coerceAtLeast(1)
 
                     items.add(
                         RouteDiscoveryItem(
                             id = "osm_${el.optLong("id", i.toLong())}",
-                            title = name,
-                            subtitle = subtitle,
-                            description = desc,
-                            category = primaryCat,
-                            additionalCategories = extraCats,
+                            title = nameDe,
+                            subtitle = osmClass.subtitle,
+                            description = osmClass.description,
+                            titleEn = nameEn,
+                            subtitleEn = osmClass.subtitleEn,
+                            descriptionEn = osmClass.descriptionEn,
+                            category = osmClass.primaryCategory,
+                            additionalCategories = osmClass.additionalCategories,
                             point = pt,
                             detourDistanceKm = proj.minDistanceKm,
                             extraDetourMinutes = detourMinutes,
                             routeProgressKm = proj.routeProgressKm,
                             routeProgressFraction = proj.routeProgressFraction,
-                            isFree = isFree,
-                            eventDateText = if (primaryCat == WayCategory.TAGESEVENTS) "Aktuelles Programm / Spielplan vor Ort" else null,
+                            isFree = osmClass.isFree,
+                            eventDateText = if (osmClass.primaryCategory == WayCategory.TAGESEVENTS) "Aktuelles Programm / Spielplan vor Ort" else null,
+                            eventDateTextEn = if (osmClass.primaryCategory == WayCategory.TAGESEVENTS) "Current program / schedule on site" else null,
                             openingHours = tags.optString("opening_hours", "").ifBlank { null },
                             websiteUrl = tags.optString("website", tags.optString("contact:website", "")).ifBlank { null },
                             wikipediaUrl = tags.optString("wikipedia", "").let {
                                 if (it.isNotBlank()) "https://de.wikipedia.org/wiki/${URLEncoder.encode(it.substringAfter(":"), "UTF-8")}" else null
                             },
                             wikidataId = tags.optString("wikidata", "").ifBlank { null },
+                            imageUrl = tags.optString("image", tags.optString("wikimedia_commons", "")).takeIf { it.startsWith("http") },
                             addressOrLocality = listOfNotNull(
                                 tags.optString("addr:street", "").ifBlank { null },
-                                tags.optString("addr:city", "").ifBlank { null }
+                                tags.optString("addr:city", tags.optString("addr:municipality", "")).ifBlank { null }
                             ).joinToString(", ").ifBlank { null },
-                            tags = tagPills,
+                            tags = osmClass.tagPills,
                             source = ApiSource.OVERPASS,
-                            ratingScore = if (tags.has("wikipedia") || tags.has("wikidata")) 4.8 else 4.4
+                            ratingScore = if (tags.has("wikipedia") || tags.has("wikidata") || tags.has("heritage")) 4.8 else 4.5
                         )
                     )
                 }
@@ -1065,9 +1091,109 @@ class RouteDiscoveryService {
             source = ApiSource.OVERPASS,
             active = true,
             resultsCount = 0,
-            statusMessage = "Overpass Server ausgelastet – Kuratierter OSM-Korridor-Cache aktiv",
+            statusMessage = "Overpass Server ausgelastet – Photon OSM & Kuratierter OSM-Cache aktiv",
             latencyMs = System.currentTimeMillis() - startMs
         )
+    }
+
+    /**
+     * Zusätzliche ultraschnelle OpenStreetMap-Abfrage über die Photon Komoot OSM API:
+     * Findet gezielt POIs für eingegebene Stichworte SOWIE für die gewählten Kategorien
+     * anhand echter OSM-Keys (`osm_key` / `osm_value`) entlang des Routen-Korridors.
+     */
+    private suspend fun queryPhotonOsmAlongCorridor(
+        anchorPoints: List<GeoPoint>,
+        route: RouteResult,
+        maxDetourKm: Double,
+        categories: Set<WayCategory>,
+        keywords: List<String>
+    ): List<RouteDiscoveryItem> = withContext(Dispatchers.IO) {
+        val results = mutableListOf<RouteDiscoveryItem>()
+        val midPt = anchorPoints[anchorPoints.size / 2]
+        val quarterPt = anchorPoints[anchorPoints.size / 4]
+        val threeQuarterPt = anchorPoints[(anchorPoints.size * 3) / 4]
+        val searchCenters = listOf(quarterPt, midPt, threeQuarterPt).distinct()
+
+        // Kombiniere eingegebene Stichworte + gezielte OSM-Suchbegriffe für ausgewählte Kategorien
+        val searchTerms = buildList {
+            addAll(keywords.take(4))
+            if (WayCategory.HISTORISCHES in categories) addAll(listOf("Schloss", "Burg", "Kloster"))
+            if (WayCategory.NATUR in categories) addAll(listOf("Aussichtspunkt", "Wasserfall", "Klamm"))
+            if (WayCategory.CAFES in categories) add("Café")
+            if (WayCategory.RESTAURANTS in categories) add("Biergarten")
+            if (WayCategory.KULTURELLES in categories) add("Museum")
+            if (WayCategory.ERLEBNIS in categories) add("Therme")
+        }.distinct().take(7)
+
+        for (term in searchTerms) {
+            val center = if (term in keywords) midPt else searchCenters[searchTerms.indexOf(term) % searchCenters.size]
+            try {
+                val encoded = URLEncoder.encode(term, "UTF-8")
+                val url = "https://photon.komoot.io/api/?q=$encoded&lat=${center.lat}&lon=${center.lon}&limit=10&lang=de"
+                val raw = httpGet(url, timeoutMs = 4500)
+                val features = JSONObject(raw).optJSONArray("features") ?: continue
+                for (i in 0 until features.length()) {
+                    val feat = features.getJSONObject(i)
+                    val props = feat.optJSONObject("properties") ?: continue
+                    val geom = feat.optJSONObject("geometry") ?: continue
+                    val coords = geom.optJSONArray("coordinates") ?: continue
+                    if (coords.length() < 2) continue
+                    val lon = coords.optDouble(0, Double.NaN)
+                    val lat = coords.optDouble(1, Double.NaN)
+                    if (lat.isNaN() || lon.isNaN()) continue
+
+                    val name = props.optString("name", "").trim()
+                    if (name.length < 2) continue
+                    val osmKey = props.optString("osm_key", "")
+                    val osmVal = props.optString("osm_value", "")
+                    // Überspringe reine Wohnstraßen oder Postleitzahlen
+                    if (osmKey == "highway" && osmVal !in listOf("path", "footway", "Steps", "cycleway", "pedestrian")) continue
+                    if (osmKey == "place" && osmVal in listOf("city", "town", "village", "suburb", "hamlet", "county", "state")) continue
+
+                    val pt = GeoPoint(lat, lon, name)
+                    val proj = GeoMath.projectOntoRoute(pt, route.basePolyline)
+                    if (proj.minDistanceKm > maxDetourKm) continue
+
+                    val city = props.optString("city", props.optString("county", "")).trim()
+                    val syntheticTags = JSONObject().apply {
+                        put("name", name)
+                        if (osmKey.isNotBlank() && osmVal.isNotBlank()) {
+                            put(osmKey, osmVal)
+                        }
+                        if (city.isNotBlank()) put("addr:city", city)
+                    }
+                    val osmClass = classifyOsmTags(syntheticTags)
+                    val detourMinutes = ((proj.minDistanceKm * 2.0 / route.travelMode.avgSpeedKmh) * 60.0).roundToInt().coerceAtLeast(1)
+                    val osmId = props.optLong("osm_id", (name.hashCode() + i).toLong())
+
+                    results.add(
+                        RouteDiscoveryItem(
+                            id = "photon_osm_$osmId",
+                            title = name,
+                            subtitle = if (city.isNotBlank()) "${osmClass.subtitle} • $city" else osmClass.subtitle,
+                            description = osmClass.description,
+                            titleEn = GermanTranslator.translateToEnglish(name),
+                            subtitleEn = if (city.isNotBlank()) "${osmClass.subtitleEn} • $city" else osmClass.subtitleEn,
+                            descriptionEn = osmClass.descriptionEn,
+                            category = osmClass.primaryCategory,
+                            additionalCategories = osmClass.additionalCategories,
+                            point = pt,
+                            detourDistanceKm = proj.minDistanceKm,
+                            extraDetourMinutes = detourMinutes,
+                            routeProgressKm = proj.routeProgressKm,
+                            routeProgressFraction = proj.routeProgressFraction,
+                            isFree = osmClass.isFree,
+                            addressOrLocality = city.ifBlank { null },
+                            tags = (osmClass.tagPills + listOfNotNull(osmVal.takeIf { it.isNotBlank() && it != "yes" }?.replace("_", " "))).distinct(),
+                            source = ApiSource.OVERPASS,
+                            ratingScore = 4.6
+                        )
+                    )
+                }
+            } catch (_: Exception) {
+            }
+        }
+        results
     }
 
     private suspend fun queryWikipediaAlongCorridor(
@@ -1078,7 +1204,7 @@ class RouteDiscoveryService {
     ): Pair<List<RouteDiscoveryItem>, ApiStatusReport> = withContext(Dispatchers.IO) {
         val startMs = System.currentTimeMillis()
         val items = mutableListOf<RouteDiscoveryItem>()
-        val radiusMeters = (maxDetourKm * 1000.0).roundToInt().coerceIn(2000, 10000)
+        val radiusMeters = (maxDetourKm * 1000.0).roundToInt().coerceIn(2500, 10000)
         val samplePts = if (anchorPoints.size <= 4) anchorPoints else listOf(
             anchorPoints[1],
             anchorPoints[anchorPoints.size / 2],
@@ -1086,6 +1212,7 @@ class RouteDiscoveryService {
         )
 
         try {
+            // 1. GeoSearch entlang der Routen-Stützpunkte
             for (pt in samplePts) {
                 val url = "https://de.wikipedia.org/w/api.php?action=query" +
                         "&generator=geosearch&ggscoord=${pt.lat}|${pt.lon}" +
@@ -1093,56 +1220,23 @@ class RouteDiscoveryService {
                         "&prop=coordinates|extracts|pageimages|info|pageprops" +
                         "&pithumbsize=320&exintro=1&explaintext=1&exchars=280&inprop=url&format=json"
                 val response = httpGet(url, timeoutMs = 6000)
-                val root = JSONObject(response)
-                val pages = root.optJSONObject("query")?.optJSONObject("pages") ?: continue
-                val keys = pages.keys()
-                while (keys.hasNext()) {
-                    val key = keys.next()
-                    val page = pages.getJSONObject(key)
-                    val title = page.optString("title", "").trim()
-                    if (title.isBlank()) continue
-                    val coordsArr = page.optJSONArray("coordinates") ?: continue
-                    if (coordsArr.length() == 0) continue
-                    val coord = coordsArr.getJSONObject(0)
-                    val lat = coord.optDouble("lat", Double.NaN)
-                    val lon = coord.optDouble("lon", Double.NaN)
-                    if (lat.isNaN() || lon.isNaN()) continue
+                parseWikipediaPagesIntoItems(response, route, maxDetourKm, items)
+            }
 
-                    val itemPt = GeoPoint(lat, lon, title)
-                    val proj = GeoMath.projectOntoRoute(itemPt, route.basePolyline)
-                    if (proj.minDistanceKm > maxDetourKm) continue
-
-                    val extract = page.optString("extract", "").trim()
-                        .ifBlank { "Sehenswerter Ort entlang deiner Route ($title) mit spannender Geschichte und regionaler Bedeutung." }
-                    val fullUrl = page.optString("fullurl", "https://de.wikipedia.org/wiki/${URLEncoder.encode(title, "UTF-8")}")
-                    val wikidata = page.optJSONObject("pageprops")?.optString("wikibase_item", "")?.ifBlank { null }
-                    val thumbUrl = page.optJSONObject("thumbnail")?.optString("source", "")?.ifBlank { null }
-
-                    val (cat, extraCats, isFree, tags) = classifyTextIntoCategories(title, extract)
-                    val detourMinutes = ((proj.minDistanceKm * 2.0 / route.travelMode.avgSpeedKmh) * 60.0).roundToInt().coerceAtLeast(1)
-
-                    items.add(
-                        RouteDiscoveryItem(
-                            id = "wiki_${page.optLong("pageid", title.hashCode().toLong())}",
-                            title = title,
-                            subtitle = "${cat.label} • Wikipedia & Wikidata Highlight",
-                            description = extract,
-                            category = cat,
-                            additionalCategories = extraCats,
-                            point = itemPt,
-                            detourDistanceKm = proj.minDistanceKm,
-                            extraDetourMinutes = detourMinutes,
-                            routeProgressKm = proj.routeProgressKm,
-                            routeProgressFraction = proj.routeProgressFraction,
-                            isFree = isFree,
-                            wikipediaUrl = fullUrl,
-                            wikidataId = wikidata,
-                            imageUrl = thumbUrl,
-                            tags = tags,
-                            source = ApiSource.WIKIPEDIA_WIKIDATA,
-                            ratingScore = 4.7
-                        )
-                    )
+            // 2. Falls Stichworte eingegeben wurden: gezielte Wikipedia-Volltextsuche mit Koordinaten im Korridor!
+            if (keywords.isNotEmpty()) {
+                val regionHint = route.destination.name.substringBefore(",").trim()
+                for (kw in keywords.take(3)) {
+                    try {
+                        val searchQuery = URLEncoder.encode("$kw $regionHint", "UTF-8")
+                        val kwUrl = "https://de.wikipedia.org/w/api.php?action=query" +
+                                "&generator=search&gsrsearch=$searchQuery&gsrlimit=10" +
+                                "&prop=coordinates|extracts|pageimages|info|pageprops" +
+                                "&pithumbsize=320&exintro=1&explaintext=1&exchars=280&inprop=url&format=json"
+                        val kwResponse = httpGet(kwUrl, timeoutMs = 5000)
+                        parseWikipediaPagesIntoItems(kwResponse, route, maxDetourKm, items)
+                    } catch (_: Exception) {
+                    }
                 }
             }
 
@@ -1162,6 +1256,108 @@ class RouteDiscoveryService {
                 latencyMs = System.currentTimeMillis() - startMs
             )
         }
+    }
+
+    private fun parseWikipediaPagesIntoItems(
+        response: String,
+        route: RouteResult,
+        maxDetourKm: Double,
+        items: MutableList<RouteDiscoveryItem>
+    ) {
+        val root = JSONObject(response)
+        val pages = root.optJSONObject("query")?.optJSONObject("pages") ?: return
+        val keys = pages.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            val page = pages.getJSONObject(key)
+            val title = page.optString("title", "").trim()
+            if (title.isBlank()) continue
+            val coordsArr = page.optJSONArray("coordinates") ?: continue
+            if (coordsArr.length() == 0) continue
+            val coord = coordsArr.getJSONObject(0)
+            val lat = coord.optDouble("lat", Double.NaN)
+            val lon = coord.optDouble("lon", Double.NaN)
+            if (lat.isNaN() || lon.isNaN()) continue
+
+            val itemPt = GeoPoint(lat, lon, title)
+            val proj = GeoMath.projectOntoRoute(itemPt, route.basePolyline)
+            if (proj.minDistanceKm > maxDetourKm) continue
+
+            val extract = page.optString("extract", "").trim()
+                .ifBlank { "Sehenswerter Ort entlang deiner Route ($title) mit spannender Geschichte und regionaler Bedeutung." }
+            val fullUrl = page.optString("fullurl", "https://de.wikipedia.org/wiki/${URLEncoder.encode(title, "UTF-8")}")
+            val wikidata = page.optJSONObject("pageprops")?.optString("wikibase_item", "")?.ifBlank { null }
+            val thumbUrl = page.optJSONObject("thumbnail")?.optString("source", "")?.ifBlank { null }
+
+            val (cat, extraCats, isFree, tags) = classifyTextIntoCategories(title, extract)
+            val detourMinutes = ((proj.minDistanceKm * 2.0 / route.travelMode.avgSpeedKmh) * 60.0).roundToInt().coerceAtLeast(1)
+
+            items.add(
+                RouteDiscoveryItem(
+                    id = "wiki_${page.optLong("pageid", title.hashCode().toLong())}",
+                    title = title,
+                    subtitle = "${cat.label} • Wikipedia & Wikidata Highlight",
+                    description = extract,
+                    subtitleEn = "${cat.labelEn} • Wikipedia & Wikidata Highlight",
+                    category = cat,
+                    additionalCategories = extraCats,
+                    point = itemPt,
+                    detourDistanceKm = proj.minDistanceKm,
+                    extraDetourMinutes = detourMinutes,
+                    routeProgressKm = proj.routeProgressKm,
+                    routeProgressFraction = proj.routeProgressFraction,
+                    isFree = isFree,
+                    wikipediaUrl = fullUrl,
+                    wikidataId = wikidata,
+                    imageUrl = thumbUrl,
+                    tags = tags,
+                    source = ApiSource.WIKIPEDIA_WIKIDATA,
+                    ratingScore = 4.7
+                )
+            )
+        }
+    }
+
+    /**
+     * Live-Nachsuche für zusätzlich eingegebene Stichworte entlang einer bestehenden Route:
+     * Fragt Photon OSM und Wikipedia gezielt nach dem Stichwort im Korridor ab und übersetzt die Treffer.
+     */
+    suspend fun fetchKeywordItemsAlongRoute(
+        route: RouteResult,
+        maxDetourKm: Double,
+        keywordsRaw: String
+    ): List<RouteDiscoveryItem> = coroutineScope {
+        val keywords = parseKeywords(keywordsRaw)
+        if (keywords.isEmpty()) return@coroutineScope emptyList()
+        val anchors = downsamplePolyline(route.basePolyline.ifEmpty { route.polyline }, maxPoints = 6)
+        val photonDeferred = async {
+            queryPhotonOsmAlongCorridor(
+                anchorPoints = anchors,
+                route = route,
+                maxDetourKm = maxDetourKm,
+                categories = emptySet(),
+                keywords = keywords
+            )
+        }
+        val wikiDeferred = async {
+            val wikiHits = mutableListOf<RouteDiscoveryItem>()
+            val regionHint = route.destination.name.substringBefore(",").trim()
+            for (kw in keywords.take(3)) {
+                try {
+                    val searchQuery = URLEncoder.encode("$kw $regionHint", "UTF-8")
+                    val kwUrl = "https://de.wikipedia.org/w/api.php?action=query" +
+                            "&generator=search&gsrsearch=$searchQuery&gsrlimit=8" +
+                            "&prop=coordinates|extracts|pageimages|info|pageprops" +
+                            "&pithumbsize=320&exintro=1&explaintext=1&exchars=280&inprop=url&format=json"
+                    val kwResponse = httpGet(kwUrl, timeoutMs = 4500)
+                    parseWikipediaPagesIntoItems(kwResponse, route, maxDetourKm, wikiHits)
+                } catch (_: Exception) {
+                }
+            }
+            wikiHits
+        }
+        val combined = deduplicateDiscoveries(photonDeferred.await() + wikiDeferred.await())
+        GermanTranslator.translateItemsBatch(combined).map { enrichKeywordMatches(it, keywords) }
     }
 
     private suspend fun queryGeoapifyAndOpenTripMap(
@@ -1454,6 +1650,8 @@ class RouteDiscoveryService {
         val additionalCategories: Set<WayCategory>,
         val subtitle: String,
         val description: String,
+        val subtitleEn: String,
+        val descriptionEn: String,
         val isFree: Boolean,
         val tagPills: List<String>
     )
@@ -1461,76 +1659,175 @@ class RouteDiscoveryService {
     private fun classifyOsmTags(tags: JSONObject): OsmClassification {
         val tourism = tags.optString("tourism", "")
         val natural = tags.optString("natural", "")
+        val waterway = tags.optString("waterway", "")
         val historic = tags.optString("historic", "")
+        val building = tags.optString("building", "")
         val leisure = tags.optString("leisure", "")
         val amenity = tags.optString("amenity", "")
+        val shop = tags.optString("shop", "")
+        val craft = tags.optString("craft", "")
+        val sport = tags.optString("sport", "")
         val routeTag = tags.optString("route", "")
+        val sacScale = tags.optString("sac_scale", "")
+        val heritage = tags.optString("heritage", "")
         val fee = tags.optString("fee", "")
         val cuisine = tags.optString("cuisine", "")
-        val descTag = tags.optString("description", tags.optString("description:de", ""))
+        val ele = tags.optString("ele", "")
+        val outdoorSeating = tags.optString("outdoor_seating", "")
+        val descTagDe = tags.optString("description:de", tags.optString("description", "")).trim()
+        val descTagEn = tags.optString("description:en", "").trim()
 
         val isFree = fee.equals("no", ignoreCase = true) ||
-                tourism == "viewpoint" ||
-                tourism == "artwork" ||
-                tourism == "picnic_site" ||
-                leisure == "park" ||
-                leisure == "nature_reserve" ||
-                natural.isNotBlank()
+                tourism in listOf("viewpoint", "artwork", "picnic_site", "information") ||
+                leisure in listOf("park", "nature_reserve", "garden", "playground", "bird_hide") ||
+                natural.isNotBlank() ||
+                waterway == "waterfall"
 
         val extraCats = mutableSetOf<WayCategory>()
         if (isFree) extraCats.add(WayCategory.KOSTENLOSES)
 
         val primary = when {
-            amenity == "cafe" || amenity == "ice_cream" -> WayCategory.CAFES
-            amenity == "restaurant" || amenity == "biergarten" -> WayCategory.RESTAURANTS
-            routeTag == "hiking" || tourism == "alpine_hut" || tourism == "wilderness_hut" -> {
+            amenity in listOf("cafe", "ice_cream") || shop in listOf("coffee", "pastry", "confectionery", "chocolate", "bakery") -> WayCategory.CAFES
+            amenity in listOf("restaurant", "biergarten", "pub") || craft in listOf("brewery", "winery", "distillery") -> WayCategory.RESTAURANTS
+            routeTag in listOf("hiking", "foot") || sacScale.isNotBlank() || tourism in listOf("alpine_hut", "wilderness_hut") -> {
                 extraCats.add(WayCategory.NATUR)
                 WayCategory.WANDERUNGEN
             }
-            historic.isNotBlank() -> {
+            historic.isNotBlank() || building in listOf("castle", "cathedral", "monastery", "chapel") -> {
                 extraCats.add(WayCategory.KULTURELLES)
                 WayCategory.HISTORISCHES
             }
-            amenity in listOf("events_venue", "festival_grounds", "theatre", "arts_centre") -> {
+            amenity in listOf("events_venue", "festival_grounds", "theatre", "arts_centre", "concert_hall", "marketplace", "cinema") ||
+                    leisure in listOf("stadium", "bandstand") -> {
                 extraCats.add(WayCategory.KULTURELLES)
                 WayCategory.TAGESEVENTS
             }
-            tourism in listOf("museum", "gallery", "artwork") -> WayCategory.KULTURELLES
-            tourism in listOf("theme_park", "zoo", "aquarium") ||
-                    leisure in listOf("water_park", "high_ropes_course", "escape_game") -> WayCategory.ERLEBNIS
-            natural.isNotBlank() || leisure in listOf("nature_reserve", "park") || tourism == "viewpoint" -> {
-                if (tourism == "viewpoint") extraCats.add(WayCategory.WANDERUNGEN)
+            tourism in listOf("museum", "gallery", "artwork") || amenity in listOf("planetarium", "library") || heritage.isNotBlank() -> WayCategory.KULTURELLES
+            tourism in listOf("theme_park", "zoo", "aquarium", "attraction") ||
+                    leisure in listOf("water_park", "high_ropes_course", "summer_toboggan", "miniature_golf", "escape_game", "swimming_area") ||
+                    sport in listOf("climbing", "paragliding", "toboggan", "canoe") -> WayCategory.ERLEBNIS
+            natural.isNotBlank() || waterway == "waterfall" || leisure in listOf("nature_reserve", "park", "garden", "bird_hide") || tourism in listOf("viewpoint", "picnic_site") -> {
+                if (tourism == "viewpoint" || natural == "peak") extraCats.add(WayCategory.WANDERUNGEN)
                 WayCategory.NATUR
             }
             isFree -> WayCategory.KOSTENLOSES
             else -> WayCategory.ERLEBNIS
         }
 
-        val sub = when (primary) {
+        val subDe = when (primary) {
             WayCategory.NATUR -> when {
                 tourism == "viewpoint" -> "Panorama-Aussichtspunkt • Natur & Weitblick"
-                natural == "waterfall" -> "Wasserfall • Natur-Highlight"
-                natural == "peak" -> "Berggipfel ${tags.optString("ele", "").let { if (it.isNotBlank()) "(${it}m)" else "" }}"
+                natural == "waterfall" || waterway == "waterfall" -> "Wasserfall • Natur-Highlight"
+                natural == "peak" -> "Berggipfel ${if (ele.isNotBlank()) "(${ele}m)" else ""}".trim()
                 natural == "cave_entrance" -> "Naturhöhle & Geotop"
+                natural == "gorge" || natural == "cliff" -> "Felsenschlucht & Geotop"
+                natural == "spring" -> "Naturquelle & Landschaftspunkt"
                 else -> "Natur- & Erholungsort entlang der Route"
             }
-            WayCategory.ERLEBNIS -> "Erlebnis- & Freizeit-Attraktion"
+            WayCategory.ERLEBNIS -> when {
+                leisure == "water_park" || leisure == "swimming_area" -> "Therme, Erlebnisbad & Wasser-Action"
+                leisure == "high_ropes_course" || sport == "climbing" -> "Kletterwald & Outdoor-Abenteuer"
+                leisure == "summer_toboggan" || sport == "toboggan" -> "Sommerrodelbahn & Familien-Action"
+                tourism == "zoo" -> "Tierpark & Wildgehege"
+                else -> "Erlebnis- & Freizeit-Attraktion"
+            }
             WayCategory.TAGESEVENTS -> "Veranstaltungsort, Bühne & Kultur-Events"
             WayCategory.KOSTENLOSES -> "Kostenloses Entdecker-Ziel (Eintritt frei)"
-            WayCategory.CAFES -> "Café & Kaffeepause ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}"
-            WayCategory.RESTAURANTS -> "Restaurant / Einkehr ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}"
-            WayCategory.WANDERUNGEN -> "Wanderung, Steig & Einkehrhütte"
-            WayCategory.HISTORISCHES -> "Historisches Denkmal (${historic.replace("_", " ")})"
-            WayCategory.KULTURELLES -> "Kultur, Museum & Kunst"
+            WayCategory.CAFES -> when {
+                shop == "coffee" -> "Kaffeerösterei & Spezialitätenkaffee"
+                amenity == "ice_cream" -> "Eisdiele & Kaffeepause"
+                shop in listOf("pastry", "bakery", "confectionery") -> "Konditorei, Backkunst & Café"
+                else -> "Café & Kaffeepause ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}".trim()
+            }
+            WayCategory.RESTAURANTS -> when {
+                amenity == "biergarten" -> "Traditioneller Biergarten & Einkehr"
+                craft == "brewery" -> "Brauerei & Braugasthof"
+                craft == "winery" -> "Weingut & Gutsschänke"
+                else -> "Restaurant / Einkehr ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}".trim()
+            }
+            WayCategory.WANDERUNGEN -> when {
+                tourism in listOf("alpine_hut", "wilderness_hut") -> "Berghütte & Wander-Einkehr ${if (ele.isNotBlank()) "(${ele}m)" else ""}".trim()
+                else -> "Wanderung, Steig & Naturpfad"
+            }
+            WayCategory.HISTORISCHES -> when {
+                historic in listOf("castle", "palace") || building == "castle" -> "Burg & historisches Schloss"
+                historic == "ruins" -> "Historische Burgruine"
+                historic == "monastery" || building == "monastery" -> "Historisches Kloster & Abtei"
+                else -> "Historisches Denkmal (${historic.ifBlank { building }.replace("_", " ")})"
+            }
+            WayCategory.KULTURELLES -> when {
+                tourism == "museum" -> "Museum & Ausstellung"
+                tourism == "gallery" -> "Kunstgalerie & Kulturort"
+                else -> "Kultur, Architektur & Kunst"
+            }
         }
 
-        val description = descTag.ifBlank {
+        val subEn = when (primary) {
+            WayCategory.NATUR -> when {
+                tourism == "viewpoint" -> "Panoramic Viewpoint • Nature & Scenic Vista"
+                natural == "waterfall" || waterway == "waterfall" -> "Waterfall • Nature Highlight"
+                natural == "peak" -> "Mountain Peak ${if (ele.isNotBlank()) "(${ele}m)" else ""}".trim()
+                natural == "cave_entrance" -> "Natural Cave & Geotope"
+                natural == "gorge" || natural == "cliff" -> "Rock Gorge & Cliffs"
+                natural == "spring" -> "Natural Spring & Scenic Spot"
+                else -> "Nature & recreation spot along the route"
+            }
+            WayCategory.ERLEBNIS -> when {
+                leisure == "water_park" || leisure == "swimming_area" -> "Thermal Bath, Water Park & Swimming"
+                leisure == "high_ropes_course" || sport == "climbing" -> "Climbing Forest & Outdoor Adventure"
+                leisure == "summer_toboggan" || sport == "toboggan" -> "Summer Toboggan Run & Action"
+                tourism == "zoo" -> "Wildlife Park & Zoo"
+                else -> "Adventure & leisure attraction"
+            }
+            WayCategory.TAGESEVENTS -> "Event Venue, Stage & Cultural Events"
+            WayCategory.KOSTENLOSES -> "Free Discovery Destination (Free Admission)"
+            WayCategory.CAFES -> when {
+                shop == "coffee" -> "Coffee Roastery & Specialty Coffee"
+                amenity == "ice_cream" -> "Ice Cream Parlor & Coffee Break"
+                shop in listOf("pastry", "bakery", "confectionery") -> "Pastry Shop, Bakery & Café"
+                else -> "Café & Coffee Break ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}".trim()
+            }
+            WayCategory.RESTAURANTS -> when {
+                amenity == "biergarten" -> "Traditional Beer Garden & Dining"
+                craft == "brewery" -> "Brewery & Taproom Inn"
+                craft == "winery" -> "Winery & Vineyard Tavern"
+                else -> "Restaurant & Dining ${if (cuisine.isNotBlank()) "• ${cuisine.replace(";", ", ")}" else ""}".trim()
+            }
+            WayCategory.WANDERUNGEN -> when {
+                tourism in listOf("alpine_hut", "wilderness_hut") -> "Alpine Hut & Hikers' Inn ${if (ele.isNotBlank()) "(${ele}m)" else ""}".trim()
+                else -> "Hiking Trail, Path & Scenic Route"
+            }
+            WayCategory.HISTORISCHES -> when {
+                historic in listOf("castle", "palace") || building == "castle" -> "Historic Castle & Palace"
+                historic == "ruins" -> "Historic Castle Ruins"
+                historic == "monastery" || building == "monastery" -> "Historic Monastery & Abbey"
+                else -> "Historic Monument (${historic.ifBlank { building }.replace("_", " ")})"
+            }
+            WayCategory.KULTURELLES -> when {
+                tourism == "museum" -> "Museum & Exhibition"
+                tourism == "gallery" -> "Art Gallery & Cultural Spot"
+                else -> "Culture, Architecture & Art"
+            }
+        }
+
+        val oh = tags.optString("opening_hours", "")
+        val descriptionDe = descTagDe.ifBlank {
             buildString {
-                append("$sub direkt im gewählten Routen-Korridor. ")
+                append("$subDe direkt im gewählten Routen-Korridor. ")
+                if (outdoorSeating == "yes") append("Mit Außenterrasse / Gastgarten. ")
                 if (isFree) append("Kostenlos zugänglich ohne Eintrittsgebühr. ")
-                val oh = tags.optString("opening_hours", "")
                 if (oh.isNotBlank()) append("Öffnungszeiten: $oh. ")
                 append("Quelle: Live OpenStreetMap / Overpass API.")
+            }
+        }
+
+        val descriptionEn = descTagEn.ifBlank {
+            buildString {
+                append("$subEn located directly within your selected route corridor. ")
+                if (outdoorSeating == "yes") append("Features outdoor seating / terrace. ")
+                if (isFree) append("Freely accessible without admission fee. ")
+                if (oh.isNotBlank()) append("Opening hours: $oh. ")
+                append("Source: Live OpenStreetMap / Overpass API.")
             }
         }
 
@@ -1540,10 +1837,12 @@ class RouteDiscoveryService {
             if (tourism.isNotBlank()) add(tourism.replace("_", " "))
             if (historic.isNotBlank()) add(historic.replace("_", " "))
             if (natural.isNotBlank()) add(natural.replace("_", " "))
+            if (craft.isNotBlank()) add(craft.replace("_", " "))
+            if (shop.isNotBlank()) add(shop.replace("_", " "))
             if (cuisine.isNotBlank()) add(cuisine.substringBefore(";"))
         }.distinct()
 
-        return OsmClassification(primary, extraCats, sub, description, isFree, pills)
+        return OsmClassification(primary, extraCats, subDe, descriptionDe, subEn, descriptionEn, isFree, pills)
     }
 
     private data class TextClassification(
@@ -1609,12 +1908,17 @@ class RouteDiscoveryService {
         if (keywords.isEmpty()) return item
         val searchable = buildString {
             append(item.title.lowercase()).append(" ")
+            append(item.titleEn.lowercase()).append(" ")
             append(item.subtitle.lowercase()).append(" ")
+            append(item.subtitleEn.lowercase()).append(" ")
             append(item.description.lowercase()).append(" ")
+            append(item.descriptionEn.lowercase()).append(" ")
             append(item.category.label.lowercase()).append(" ")
+            append(item.category.labelEn.lowercase()).append(" ")
             item.category.defaultKeywords.forEach { append(it).append(" ") }
             item.additionalCategories.forEach { cat ->
                 append(cat.label.lowercase()).append(" ")
+                append(cat.labelEn.lowercase()).append(" ")
                 cat.defaultKeywords.forEach { append(it).append(" ") }
             }
             item.tags.forEach { append(it.lowercase()).append(" ") }

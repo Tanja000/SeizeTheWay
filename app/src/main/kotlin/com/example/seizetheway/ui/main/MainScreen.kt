@@ -1971,7 +1971,7 @@ private fun DiscoveryStopCard(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "#$tag",
+                                text = "#${tag.localizedTag(appLanguage)}",
                                 color = Color(0xFF475569),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,

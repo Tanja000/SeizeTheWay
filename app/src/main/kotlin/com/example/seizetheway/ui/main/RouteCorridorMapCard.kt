@@ -74,7 +74,10 @@ fun DedicatedMapTabScreen(
 ) {
     if (route == null || route.polyline.isEmpty()) {
         Box(modifier = modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text("Bitte zuerst eine Route berechnen.", color = Color(0xFF64748B))
+            Text(
+                text = if (appLanguage.isGerman) "Bitte zuerst eine Route berechnen." else "Please calculate a route first.",
+                color = Color(0xFF64748B)
+            )
         }
         return
     }
@@ -267,6 +270,7 @@ fun DedicatedMapTabScreen(
                         maxDetourKm = maxDetourKm,
                         mapHeight = 310.dp,
                         enableZoomPan = true,
+                        appLanguage = appLanguage,
                         onPinClick = handleMapIconClick,
                         onOpenFullscreen = { isFullscreenMapOpen = true },
                         modifier = Modifier
@@ -284,7 +288,7 @@ fun DedicatedMapTabScreen(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "Kategorie-Icons:",
+                            text = if (appLanguage.isGerman) "Kategorie-Icons:" else "Category Icons:",
                             color = Color(0xFF94A3B8),
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold
@@ -307,7 +311,7 @@ fun DedicatedMapTabScreen(
                                     )
                                     Spacer(Modifier.width(4.dp))
                                     Text(
-                                        text = "${cat.shortLabel} ($count)",
+                                        text = "${cat.localizedShortLabel(appLanguage)} ($count)",
                                         color = Color.White,
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Medium
@@ -617,6 +621,7 @@ fun InteractiveCorridorMapSurface(
     maxDetourKm: Float,
     mapHeight: Dp,
     enableZoomPan: Boolean,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onPinClick: (RouteDiscoveryItem) -> Unit,
     onOpenFullscreen: (() -> Unit)? = null,
     modifier: Modifier = Modifier
@@ -837,7 +842,7 @@ fun InteractiveCorridorMapSurface(
                 ) {
                     Icon(
                         imageVector = categoryIcon(item.category),
-                        contentDescription = "${item.category.label}: ${item.title}",
+                        contentDescription = "${item.category.localizedLabel(appLanguage)}: ${item.displayTitle(appLanguage)}",
                         tint = if (isHighlighted) Color(0xFF081224) else item.category.color,
                         modifier = Modifier.size(if (isHighlighted) 20.dp else 15.dp)
                     )
@@ -860,7 +865,7 @@ fun InteractiveCorridorMapSurface(
                             .clickable { onPinClick(item) }
                     ) {
                         Text(
-                            text = item.title,
+                            text = item.displayTitle(appLanguage),
                             color = Color.White,
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
@@ -1128,6 +1133,7 @@ fun FullscreenRouteMapDialog(
                     maxDetourKm = maxDetourKm,
                     mapHeight = 340.dp,
                     enableZoomPan = true,
+                    appLanguage = appLanguage,
                     onPinClick = { clicked ->
                         onSelectItem(clicked)
                         val idx = items.indexOfFirst { it.id == clicked.id }
@@ -1314,6 +1320,15 @@ fun MapPointDescriptionCard(
                     )
 
                     Text(
+                        text = item.displaySubtitle(appLanguage),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF475569),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    Text(
                         text = if (appLanguage.isGerman) {
                             if (item.detourDistanceKm < 0.15) {
                                 "Bei km ${item.routeProgressKm.roundToInt()} • Direkt an der Route (0 km Abstecher)"
@@ -1327,11 +1342,9 @@ fun MapPointDescriptionCard(
                                 "At km ${item.routeProgressKm.roundToInt()} • +${String.format(java.util.Locale.US, "%.1f", item.detourDistanceKm * 2.0)} km detour (~${item.extraDetourMinutes} min)"
                             }
                         },
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF006B5E),
-                        maxLines = 1,
-                        softWrap = false
+                        color = Color(0xFF006B5E)
                     )
                 }
             }
