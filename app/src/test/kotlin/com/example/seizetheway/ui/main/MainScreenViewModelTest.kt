@@ -47,4 +47,28 @@ class MainScreenViewModelTest {
         assertTrue(labels.contains("Kulturelles"))
         assertEquals(9, labels.size)
     }
+
+    @Test
+    fun translation_supportsBothGermanAndEnglish() {
+        val germanText = "Seepromenade & Schlossgarten Starnberg"
+        val englishText = com.example.seizetheway.data.GermanTranslator.translateToEnglish(germanText)
+        assertTrue(englishText.contains("Lakeside Promenade") || englishText.contains("Castle"))
+    }
+
+    @Test
+    fun nearbyRecommendedPresets_areWithin50KmRadiusOfUserLocation() {
+        val augsburgPt = GeoPoint(48.3705, 10.8978, "Augsburg")
+        TravelMode.entries.forEach { mode ->
+            val presets = com.example.seizetheway.model.getNearbyRecommendedPresets(
+                mode = mode,
+                originQuery = "Augsburg",
+                originPoint = augsburgPt
+            )
+            assertTrue("Should generate nearby presets for $mode", presets.isNotEmpty())
+            assertTrue("First preset should start at user location Augsburg", presets.first().originName == "Augsburg")
+            presets.forEach { p ->
+                assertTrue("Preset ${p.title} should be <= 50 km", p.approxDistanceKm <= 50)
+            }
+        }
+    }
 }

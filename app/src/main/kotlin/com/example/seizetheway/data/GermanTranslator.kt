@@ -169,6 +169,136 @@ object GermanTranslator {
         return@withContext fallbackResult
     }
 
+    private val germanToEnglishGlossary = mapOf(
+        "Seepromenade & Schlossgarten Starnberg" to "Lakeside Promenade & Starnberg Castle Gardens",
+        "Alpenblick am Starnberger See • Kostenlos" to "Alpine view at Lake Starnberg • Free",
+        "Weitläufige Uferpromenade am Starnberger See mit freiem Blick bis zur Zugspitze, Badestegen und dem historischen Schlossgarten." to "Spacious lakeside promenade at Lake Starnberg with clear views of the Zugspitze, bathing docks and historic castle gardens.",
+        "Buchheim Museum der Phantasie (Bernried)" to "Buchheim Museum of Imagination (Bernried)",
+        "Expressionismus & Architektur direkt am Seeufer" to "Expressionism & architecture directly on the lakeshore",
+        "Preisgekröntes Museum für Expressionismus, Volkskunst und Skulpturenpark mit einem über dem Starnberger See schwebenden Aussichtssteg." to "Award-winning museum for expressionism, folk art and sculpture park with a scenic walkway suspended over Lake Starnberg.",
+        "Murnauer Moos – Bohlenweg-Rundwanderung" to "Murnau Moor – Plank Path Loop Hike",
+        "Größtes zusammenhängendes Moorgebiet Mitteleuropas" to "Central Europe's largest contiguous moorland area",
+        "Traumhafte, kostenfreie Rundwanderung über Holzbohlenwege durch das Murnauer Moos mit einzigartiger Flora und Wetterstein-Panorama." to "Dreamy, free loop hike across wooden boardwalks through Murnau Moor with unique flora and Wetterstein alpine panorama.",
+        "Murnauer Kaffeerösterei & Café" to "Murnau Coffee Roastery & Café",
+        "Spezialitätenkaffee & hausgemachte Kuchen in der Fußgängerzone" to "Specialty coffee & homemade pastries in pedestrian zone",
+        "Traditionsreiche Kaffeerösterei im Herzen von Murnau am Staffelsee – ideal für einen Espresso-Stopp und frisch geröstete Bohnen." to "Traditional specialty coffee roastery in the heart of Murnau am Staffelsee – ideal for an espresso break and freshly roasted beans.",
+        "Kloster Ettal & Klostergasthof" to "Ettal Abbey & Monastery Inn",
+        "Barocke Benediktinerabtei, Schaukäserei & Brauerei" to "Baroque Benedictine abbey, showcase dairy & brewery",
+        "Imposante Barockbasilika von 1330 im Ammergauer Alpenkessel mit traditionellem Klostergasthof, Brauerei und freiem Eintritt in die Basilika." to "Impressive baroque basilica from 1330 in the Ammergau Alps basin with traditional monastery inn, brewery and free basilica admission.",
+        "Konzertpavillon & Kurpark-Bühne Garmisch" to "Concert Pavilion & Spa Park Stage Garmisch",
+        "Kostenlose Kurkonzerte & Blumenpromenade" to "Free spa concerts & flowering promenade",
+        "Historischer Konzertpavillon im gepflegten Michael-Ende-Kurpark mit regelmäßigen Live-Freiluftkonzerten und Heilkräutergarten." to "Historic concert pavilion in the landscaped Michael Ende Spa Park featuring open-air live concerts and herbal garden.",
+        "Partnachklamm & Graseck-Steig" to "Partnach Gorge & Graseck Trail",
+        "Naturdenkmal mit tosenden Wasserfällen & Felsengalerien" to "Natural monument with roaring waterfalls & rock galleries",
+        "Weltberühmte Felsenschlucht mit tosenden Wildwassern, Tropfsteingalerien und spektakulären Hängebrücken am Fuß der Wettersteinwand." to "World-famous gorge with rushing white water, dripstone galleries and spectacular suspension paths beneath the Wetterstein wall.",
+        "Panorama-Aussichtspunkt" to "Panoramic Viewpoint",
+        "Panorama-Aussicht" to "Panoramic View",
+        "Aussichtspunkt" to "Scenic Viewpoint",
+        "Aussicht" to "Scenic View",
+        "Wasserfälle" to "Waterfalls",
+        "Wasserfall" to "Waterfall",
+        "Burg / Schloss" to "Castle & Palace",
+        "Burgruine" to "Castle Ruins",
+        "Burg" to "Castle",
+        "Schloss" to "Palace / Castle",
+        "Festung" to "Fortress",
+        "Kathedrale / Dom" to "Cathedral",
+        "Kathedrale" to "Cathedral",
+        "Dom" to "Cathedral",
+        "Kirche" to "Church",
+        "Kloster" to "Monastery",
+        "Abtei" to "Abbey",
+        "Kapelle" to "Chapel",
+        "Palast / Residenz" to "Palace",
+        "Palast" to "Palace",
+        "Residenz" to "Residence",
+        "Naturschutzgebiet" to "Nature Reserve",
+        "Nationalpark" to "National Park",
+        "Wanderweg" to "Hiking Trail",
+        "Wanderungen" to "Hikes",
+        "Wanderung" to "Hike",
+        "Berggipfel" to "Mountain Peak",
+        "Gipfel" to "Peak",
+        "See" to "Lake",
+        "Badesee" to "Swimming Lake",
+        "Klamm / Schlucht" to "Gorge & Canyon",
+        "Klamm" to "Gorge",
+        "Schlucht" to "Canyon",
+        "Brücke" to "Bridge",
+        "Turm" to "Tower",
+        "Leuchtturm" to "Lighthouse",
+        "Historische Altstadt" to "Historic Old Town",
+        "Altstadt" to "Old Town",
+        "Marktplatz" to "Market Square",
+        "Markt" to "Market",
+        "Botanischer Garten" to "Botanical Garden",
+        "Freizeitpark" to "Amusement Park",
+        "Erlebnispark" to "Adventure Park",
+        "Tierpark / Zoo" to "Zoo & Wildlife Park",
+        "Tierpark" to "Zoo",
+        "Zoo" to "Zoo",
+        "Brauerei" to "Brewery",
+        "Biergarten" to "Beer Garden",
+        "Weingut" to "Winery",
+        "Weinberg" to "Vineyard",
+        "Ausstellung" to "Exhibition",
+        "Konzert" to "Concert",
+        "Festival / Festspiele" to "Festival",
+        "Festspiele" to "Festival",
+        "Festival" to "Festival",
+        "Open-Air" to "Open-Air",
+        "Freier Eintritt" to "Free Admission",
+        "Eintritt frei" to "Free Admission",
+        "Kostenlos" to "Free",
+        "Kultur" to "Culture",
+        "Kulturelles" to "Culture",
+        "Erlebnis" to "Adventure",
+        "Natur" to "Nature",
+        "Events" to "Events",
+        "Tagesevents" to "Events",
+        "Cafés" to "Cafés",
+        "Restaurants" to "Restaurants",
+        "Historisches" to "History",
+        "Samstag" to "Saturday",
+        "Sonntag" to "Sunday",
+        "Montag" to "Monday",
+        "Dienstag" to "Tuesday",
+        "Mittwoch" to "Wednesday",
+        "Donnerstag" to "Thursday",
+        "Freitag" to "Friday",
+        "Wochenende" to "Weekend",
+        "Dieses Wochenende" to "This Weekend",
+        "Heute" to "Today",
+        "Morgen" to "Tomorrow",
+        "Geplante Tour" to "Planned Tour",
+        "24/7 frei zugänglich" to "Open 24/7",
+        "Täglich frei zugänglich" to "Open daily free admission",
+        "Täglich" to "Daily",
+        "Direkt an der Route" to "Directly on route",
+        "Abstecher" to "detour",
+        "Minuten" to "minutes",
+        "Min." to "min"
+    )
+
+    fun translateToEnglish(text: String): String {
+        if (text.isBlank()) return text
+        cache["en_$text"]?.let { return it }
+
+        // Exact match
+        germanToEnglishGlossary[text]?.let {
+            cache["en_$text"] = it
+            return it
+        }
+
+        var res = text
+        for ((de, en) in germanToEnglishGlossary) {
+            val regex = Regex("(?i)\\b${Regex.escape(de)}\\b")
+            res = regex.replace(res, en)
+        }
+        cache["en_$text"] = res
+        return res
+    }
+
     /**
      * Übersetzt alle relevanten Textfelder eines RouteDiscoveryItem ins Deutsche.
      */
@@ -184,3 +314,15 @@ object GermanTranslator {
         )
     }
 }
+
+fun RouteDiscoveryItem.displayTitle(lang: com.example.seizetheway.model.AppLanguage): String =
+    if (lang.isGerman) title else GermanTranslator.translateToEnglish(title)
+
+fun RouteDiscoveryItem.displaySubtitle(lang: com.example.seizetheway.model.AppLanguage): String =
+    if (lang.isGerman) subtitle else GermanTranslator.translateToEnglish(subtitle)
+
+fun RouteDiscoveryItem.displayDescription(lang: com.example.seizetheway.model.AppLanguage): String =
+    if (lang.isGerman) description else GermanTranslator.translateToEnglish(description)
+
+fun RouteDiscoveryItem.displayEventDate(lang: com.example.seizetheway.model.AppLanguage): String? =
+    eventDateText?.let { if (lang.isGerman) it else GermanTranslator.translateToEnglish(it) }

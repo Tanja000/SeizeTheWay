@@ -202,8 +202,24 @@ class RouteDiscoveryService {
     )
 
     suspend fun geocodePlace(query: String): Pair<GeoPoint, ApiStatusReport> = withContext(Dispatchers.IO) {
-        val clean = query.trim()
+        val clean = query
+            .replace("(Mein Standort)", "", ignoreCase = true)
+            .replace("(My Location)", "", ignoreCase = true)
+            .trim()
         val startMs = System.currentTimeMillis()
+        if (clean.equals("Aktueller Standort", ignoreCase = true) ||
+            clean.equals("Mein Standort", ignoreCase = true) ||
+            clean.equals("Current Location", ignoreCase = true)
+        ) {
+            val defaultPt = GeoPoint(48.137154, 11.576124, "München")
+            return@withContext defaultPt to ApiStatusReport(
+                source = ApiSource.NOMINATIM,
+                active = true,
+                resultsCount = 1,
+                statusMessage = "Standort wird ermittelt…",
+                latencyMs = 5L
+            )
+        }
         // Instant lookup for known cities so switching presets is ultra-fast
         knownPlaces[clean.lowercase()]?.let { kp ->
             return@withContext kp to ApiStatusReport(
@@ -211,6 +227,16 @@ class RouteDiscoveryService {
                 active = true,
                 resultsCount = 1,
                 statusMessage = "OSM Koordinaten (${kp.name})",
+                latencyMs = 5L
+            )
+        }
+        REGIONAL_EXCURSION_SPOTS.firstOrNull { it.name.equals(clean, ignoreCase = true) }?.let { spot ->
+            val pt = GeoPoint(spot.lat, spot.lon, spot.name)
+            return@withContext pt to ApiStatusReport(
+                source = ApiSource.NOMINATIM,
+                active = true,
+                resultsCount = 1,
+                statusMessage = "OSM Koordinaten (${spot.name})",
                 latencyMs = 5L
             )
         }
@@ -296,21 +322,83 @@ class RouteDiscoveryService {
      * Ermittelt anhand von GPS-Koordinaten (z.B. aktueller Nutzer-Standort) den zugehörigen Ortsnamen (Reverse-Geocoding).
      */
     suspend fun reverseGeocode(lat: Double, lon: Double): GeoPoint = withContext(Dispatchers.IO) {
+        // 1. Nominatim Reverse Geocoding
         try {
-            val url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lon&zoom=14&addressdetails=1&accept-language=de"
+            val url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$lat&lon=$lon&zoom=13&addressdetails=1&accept-language=de"
             val response = httpGet(url, timeoutMs = 4500)
             val json = JSONObject(response)
             val address = json.optJSONObject("address")
             val city = address?.optString("city", "")?.ifBlank { null }
                 ?: address?.optString("town", "")?.ifBlank { null }
                 ?: address?.optString("village", "")?.ifBlank { null }
-                ?: address?.optString("suburb", "")?.ifBlank { null }
                 ?: address?.optString("municipality", "")?.ifBlank { null }
-                ?: json.optString("name", "Mein Standort")
-            return@withContext GeoPoint(lat, lon, city)
+                ?: address?.optString("suburb", "")?.ifBlank { null }
+                ?: address?.optString("county", "")?.ifBlank { null }
+                ?: json.optString("name", "").ifBlank { null }
+            if (!city.isNullOrBlank()) {
+                return@withContext GeoPoint(lat, lon, city)
+            }
         } catch (_: Exception) {
-            return@withContext GeoPoint(lat, lon, "Mein Standort")
         }
+
+        // 2. Photon Komoot Reverse Geocoding
+        try {
+            val url = "https://photon.komoot.io/reverse?lon=$lon&lat=$lat&lang=de"
+            val response = httpGet(url, timeoutMs = 3500)
+            val features = JSONObject(response).optJSONArray("features")
+            if (features != null && features.length() > 0) {
+                val props = features.getJSONObject(0).optJSONObject("properties")
+                val city = props?.optString("city", "")?.ifBlank { null }
+                    ?: props?.optString("town", "")?.ifBlank { null }
+                    ?: props?.optString("village", "")?.ifBlank { null }
+                    ?: props?.optString("name", "")?.ifBlank { null }
+                if (!city.isNullOrBlank()) {
+                    return@withContext GeoPoint(lat, lon, city)
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 3. Nearest known city / regional spot within 25 km
+        val pt = GeoPoint(lat, lon)
+        val nearestKnown = (knownPlaces.values + REGIONAL_EXCURSION_SPOTS.map { GeoPoint(it.lat, it.lon, it.name) })
+            .minByOrNull { GeoMath.haversineKm(pt, it) }
+        if (nearestKnown != null && GeoMath.haversineKm(pt, nearestKnown) <= 25.0) {
+            return@withContext GeoPoint(lat, lon, nearestKnown.name)
+        }
+
+        return@withContext GeoPoint(lat, lon, "Mein Standort")
+    }
+
+    /**
+     * Ermittelt den tatsächlichen Standort des Geräts über IP-Geocoding, falls GPS inaktiv
+     * oder Berechtigungen noch nicht erteilt wurden (funktioniert weltweit und liefert den echten Ort).
+     */
+    suspend fun fetchIpLocation(): GeoPoint? = withContext(Dispatchers.IO) {
+        val endpoints = listOf(
+            "https://ipapi.co/json/",
+            "https://freeipapi.com/api/json",
+            "http://ip-api.com/json/?fields=status,country,city,lat,lon"
+        )
+        for (url in endpoints) {
+            try {
+                val response = httpGet(url, timeoutMs = 3500)
+                val json = JSONObject(response)
+                val lat = if (json.has("latitude")) json.optDouble("latitude", Double.NaN)
+                else json.optDouble("lat", Double.NaN)
+                val lon = if (json.has("longitude")) json.optDouble("longitude", Double.NaN)
+                else json.optDouble("lon", Double.NaN)
+                val city = json.optString("city", "").ifBlank {
+                    json.optString("cityName", "")
+                }.trim()
+
+                if (!lat.isNaN() && !lon.isNaN() && city.isNotBlank()) {
+                    return@withContext GeoPoint(lat, lon, city)
+                }
+            } catch (_: Exception) {
+            }
+        }
+        null
     }
 
     /**
@@ -656,7 +744,8 @@ class RouteDiscoveryService {
         keywordsRaw: String,
         onlyStrictKeywordMatches: Boolean,
         travelMode: TravelMode,
-        apiKeys: ApiKeysConfig
+        apiKeys: ApiKeysConfig,
+        originOverride: GeoPoint? = null
     ): DiscoverySearchResponse = coroutineScope {
         val effectiveCategories = if (showAllCategories || selectedCategories.isEmpty()) {
             WayCategory.entries.toSet()
@@ -665,8 +754,24 @@ class RouteDiscoveryService {
         }
         val keywords = parseKeywords(keywordsRaw)
 
-        // Step 1: Geocode Origin & Destination in parallel
-        val originDeferred = async { geocodePlace(originQuery) }
+        // Step 1: Geocode Origin & Destination in parallel (use exact GPS originOverride if matching)
+        val originDeferred = async {
+            if (originOverride != null &&
+                (originQuery.equals(originOverride.name, ignoreCase = true) ||
+                        originQuery.contains(originOverride.name, ignoreCase = true) ||
+                        originQuery.contains("Standort", ignoreCase = true))
+            ) {
+                originOverride to ApiStatusReport(
+                    source = ApiSource.NOMINATIM,
+                    active = true,
+                    resultsCount = 1,
+                    statusMessage = "GPS-Standort (${originOverride.name})",
+                    latencyMs = 2L
+                )
+            } else {
+                geocodePlace(originQuery)
+            }
+        }
         val destDeferred = async { geocodePlace(destinationQuery) }
         val (originPt, originReport) = originDeferred.await()
         val (destPt, destReport) = destDeferred.await()
@@ -760,6 +865,12 @@ class RouteDiscoveryService {
         // Step 6: Merge, deduplicate, and enforce detourDistanceKm <= maxDetourKm
         val mergedRaw = (overpassItems + wikiItems + wdEvents + geoItems + tmItems + ebItems + curatedCorridorItems)
             .filter { it.detourDistanceKm <= maxDetourKm + 0.05 }
+            .filter { item ->
+                // Start- und Zielort selbst sind keine Zwischenstopps im Korridor
+                val distOrigin = GeoMath.haversineKm(item.point, baseRoute.origin)
+                val distDest = GeoMath.haversineKm(item.point, baseRoute.destination)
+                distOrigin >= 0.8 && distDest >= 0.8
+            }
 
         val deduplicated = deduplicateDiscoveries(mergedRaw)
             .map { item -> enrichKeywordMatches(item, keywords) }

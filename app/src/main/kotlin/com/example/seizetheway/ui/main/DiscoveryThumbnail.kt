@@ -138,7 +138,11 @@ fun DiscoveryThumbnail(
                 .padding(4.dp)
         ) {
             Text(
-                text = "+${String.format("%.1f", item.detourDistanceKm)} km",
+                text = if (item.detourDistanceKm < 0.15) {
+                    "0 km"
+                } else {
+                    "+${String.format(java.util.Locale.US, "%.1f", item.detourDistanceKm * 2.0)} km"
+                },
                 color = Color(0xFF2CE5C6),
                 fontSize = 9.sp,
                 fontWeight = FontWeight.Bold,

@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.seizetheway.model.*
+import com.example.seizetheway.data.*
 import kotlin.math.roundToInt
 
 @Composable
@@ -106,13 +107,23 @@ fun PlannedTripsTabScreen(
                 Spacer(Modifier.width(8.dp))
                 Column {
                     Text(
-                        text = "Gespeicherte Touren (${state.savedTrips.size})",
+                        text = if (state.appLanguage.isGerman) {
+                            "Gespeicherte Touren (${state.savedTrips.size})"
+                        } else {
+                            "Saved Tours (${state.savedTrips.size})"
+                        },
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 16.sp,
-                        color = Color(0xFF0F172A)
+                        color = Color(0xFF0F172A),
+                        maxLines = 1,
+                        softWrap = false
                     )
                     Text(
-                        text = "Archivierte Touren mit Distanz, Höhenmetern, Events & Wechsel zur Karte",
+                        text = if (state.appLanguage.isGerman) {
+                            "Archivierte Touren mit Distanz, Höhenmetern, Events & Wechsel zur Karte"
+                        } else {
+                            "Archived tours with distance, elevation gain, events & map switch"
+                        },
                         fontSize = 11.sp,
                         color = Color(0xFF64748B)
                     )
@@ -140,12 +151,18 @@ fun PlannedTripsTabScreen(
                             modifier = Modifier.size(36.dp)
                         )
                         Text(
-                            text = "Noch keine Tour gespeichert",
+                            text = if (state.appLanguage.isGerman) "Noch keine Tour gespeichert" else "No tours saved yet",
                             fontWeight = FontWeight.Bold,
-                            fontSize = 15.sp
+                            fontSize = 15.sp,
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Text(
-                            text = "Speichere deinen aktuellen Track inklusive Stopps & Events oben über 'Als Tour speichern' oder direkt im Tab 'Karte'.",
+                            text = if (state.appLanguage.isGerman) {
+                                "Speichere deinen aktuellen Track inklusive Stopps & Events oben über 'Tour speichern' oder direkt im Tab 'Karte'."
+                            } else {
+                                "Save your current track including stops & events using 'Save Tour' above or directly in the 'Map' tab."
+                            },
                             fontSize = 12.sp,
                             color = Color(0xFF64748B)
                         )
@@ -156,6 +173,7 @@ fun PlannedTripsTabScreen(
             items(state.savedTrips, key = { it.id }) { trip ->
                 SavedTourArchiveCard(
                     trip = trip,
+                    appLanguage = state.appLanguage,
                     onOpenTourOnMap = { onLoadSavedTrip(trip) },
                     onTransferToGoogleMaps = {
                         onTransferTrackToGoogleMaps(
@@ -217,8 +235,8 @@ private fun ActiveTourCard(
 
     val stayMinutes = plannedStops.size * 40
     val totalDayMinutes = (route?.durationMinutes ?: 0) + stayMinutes
-    val difficulty = route?.let { computeTourDifficultyLabel(it.travelMode, it.distanceKm, it.elevationGainMeters) } ?: "Geplante Tour"
-    val energyEstimate = route?.let { computeTourEnergyEstimate(it.travelMode, it.distanceKm, it.elevationGainMeters) } ?: ("-- kcal" to "")
+    val difficulty = route?.let { computeTourDifficultyLabel(it.travelMode, it.distanceKm, it.elevationGainMeters, appLanguage) } ?: (if (appLanguage.isGerman) "Geplante Tour" else "Planned Tour")
+    val energyEstimate = route?.let { computeTourEnergyEstimate(it.travelMode, it.distanceKm, it.elevationGainMeters, appLanguage) } ?: ("-- kcal" to "")
     val moveRatio = if (totalDayMinutes > 0) {
         ((route?.durationMinutes ?: 0).toFloat() / totalDayMinutes.toFloat()).coerceIn(0.15f, 1f)
     } else 1f
@@ -263,10 +281,12 @@ private fun ActiveTourCard(
                                 )
                                 Spacer(Modifier.width(5.dp))
                                 Text(
-                                    text = "AKTIVE TOUR (LIVE)",
+                                    text = if (appLanguage.isGerman) "AKTIVE TOUR (LIVE)" else "ACTIVE TOUR (LIVE)",
                                     color = Color(0xFF15803D),
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.ExtraBold
+                                    fontWeight = FontWeight.ExtraBold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -277,11 +297,13 @@ private fun ActiveTourCard(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text(
-                                    text = "${route.travelMode.label} • $difficulty",
+                                    text = "${route.travelMode.localizedLabel(appLanguage)} • $difficulty",
                                     color = Color(0xFF2CE5C6),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -289,7 +311,7 @@ private fun ActiveTourCard(
 
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = route?.let { "${it.origin.name} → ${it.destination.name}" } ?: "Aktuelle Route",
+                        text = route?.let { "${it.origin.name} → ${it.destination.name}" } ?: (if (appLanguage.isGerman) "Aktuelle Route" else "Current Route"),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 17.sp,
                         color = Color(0xFF0F172A),
@@ -310,7 +332,13 @@ private fun ActiveTourCard(
                 ) {
                     Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Optimaler Mix", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
             }
 
@@ -330,25 +358,41 @@ private fun ActiveTourCard(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "✨ Was bedeutet »Optimaler Mix«?",
+                            text = if (appLanguage.isGerman) "✨ Was bedeutet »Optimaler Mix«?" else "✨ What is »Optimal Mix«?",
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
-                            color = Color(0xFF92400E)
+                            color = Color(0xFF92400E),
+                            maxLines = 1,
+                            softWrap = false
                         )
                         Text(
-                            text = if (showOptimalMixInfo) "Einklappen ▲" else "Erklärung ▼",
+                            text = if (showOptimalMixInfo) {
+                                if (appLanguage.isGerman) "Einklappen ▲" else "Collapse ▲"
+                            } else {
+                                if (appLanguage.isGerman) "Erklärung ▼" else "Explain ▼"
+                            },
                             fontSize = 10.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFB45309)
+                            color = Color(0xFFB45309),
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                     AnimatedVisibility(visible = showOptimalMixInfo) {
                         Text(
-                            text = "Der »Optimale Mix« wählt automatisch bis zu 4 harmonisch verteilte Highlights:\n" +
-                                    "• ~25 %: Natur, Aussichtspunkt oder Wanderung\n" +
-                                    "• ~50 %: Café, Kaffeerösterei oder Restaurant\n" +
-                                    "• ~75 %: Historisches oder kulturelles Highlight\n" +
-                                    "• Plus: 1 passendes Tagesevent entlang der Route",
+                            text = if (appLanguage.isGerman) {
+                                "Der »Optimale Mix« wählt automatisch bis zu 4 harmonisch verteilte Highlights:\n" +
+                                        "• ~25 %: Natur, Aussichtspunkt oder Wanderung\n" +
+                                        "• ~50 %: Café, Kaffeerösterei oder Restaurant\n" +
+                                        "• ~75 %: Historisches oder kulturelles Highlight\n" +
+                                        "• Plus: 1 passendes Tagesevent entlang der Route"
+                            } else {
+                                "The »Optimal Mix« automatically selects up to 4 well-balanced highlights:\n" +
+                                        "• ~25%: Nature, viewpoint, or hike\n" +
+                                        "• ~50%: Café, roastery, or restaurant\n" +
+                                        "• ~75%: Historic or cultural highlight\n" +
+                                        "• Plus: 1 matching day event along your route"
+                            },
                             fontSize = 11.sp,
                             color = Color(0xFF78350F),
                             lineHeight = 15.sp,
@@ -358,62 +402,104 @@ private fun ActiveTourCard(
                 }
             }
 
-            // Metrics Box (Identical clean layout to SavedTourArchiveCard, but with active extra-km info)
+            // Metrics Box (Vertically stacked full-width rows so no text is squished!)
             if (route != null) {
                 Surface(
-                    color = Color(0xFFF1F5F9),
-                    shape = RoundedCornerShape(12.dp),
+                    color = Color(0xFFF8FAFC),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 12.dp, vertical = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(7.dp)
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
+                        // Row 1: Distance
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF006B5E), modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF006B5E), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = if (appLanguage.isGerman) "Gesamtdistanz:" else "Total distance:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF475569)
+                                )
+                            }
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = "${String.format("%.1f", route.distanceKm)} km",
                                     fontWeight = FontWeight.ExtraBold,
-                                    fontSize = 12.sp,
+                                    fontSize = 13.sp,
                                     color = Color(0xFF0F172A)
                                 )
                                 if (totalExtraKm > 0.05) {
                                     Text(
-                                        text = " (+${String.format("%.1f", totalExtraKm)})",
-                                        fontSize = 10.sp,
+                                        text = " (+${String.format("%.1f", totalExtraKm)} km)",
+                                        fontSize = 11.sp,
                                         color = Color(0xFF006B5E),
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
                             }
+                        }
+
+                        HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                        // Row 2: Elevation Gain / Loss
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Terrain, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.Terrain, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = "↑${route.elevationGainMeters} / ↓${route.elevationLossMeters} Hm",
-                                    fontWeight = FontWeight.ExtraBold,
+                                    text = if (appLanguage.isGerman) "Höhenmeter (Auf / Ab):" else "Elevation (Gain / Loss):",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF0F172A)
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF475569)
                                 )
                             }
+                            Text(
+                                text = "↑ ${route.elevationGainMeters} Hm • ↓ ${route.elevationLossMeters} Hm",
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                        }
+
+                        HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                        // Row 3: Pure travel time
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(15.dp))
-                                Spacer(Modifier.width(4.dp))
+                                Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
-                                    text = formatDuration(route.durationMinutes),
-                                    fontWeight = FontWeight.ExtraBold,
+                                    text = if (appLanguage.isGerman) "Reine Fahr-/Gehzeit:" else "Pure travel time:",
                                     fontSize = 12.sp,
-                                    color = Color(0xFF0F172A)
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF475569)
                                 )
                             }
+                            Text(
+                                text = formatDuration(route.durationMinutes),
+                                fontWeight = FontWeight.ExtraBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F172A)
+                            )
                         }
 
                         // Visual Time Breakdown Bar
@@ -444,16 +530,20 @@ private fun ActiveTourCard(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "⏱ Gesamt inkl. ${plannedStops.size} Stopps: ~${formatDuration(totalDayMinutes)}",
-                                fontSize = 11.sp,
-                                color = Color(0xFF475569),
-                                fontWeight = FontWeight.Medium
+                                text = if (appLanguage.isGerman) {
+                                    "⏱ Gesamt inkl. ${plannedStops.size} Stopps: ~${formatDuration(totalDayMinutes)}"
+                                } else {
+                                    "⏱ Total incl. ${plannedStops.size} stops: ~${formatDuration(totalDayMinutes)}"
+                                },
+                                fontSize = 11.5.sp,
+                                color = Color(0xFF334155),
+                                fontWeight = FontWeight.SemiBold
                             )
                             Text(
                                 text = "⚡ ${energyEstimate.first}",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 color = Color(0xFF006B5E),
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.Bold
                             )
                         }
                     }
@@ -463,7 +553,11 @@ private fun ActiveTourCard(
             // Places & Events Horizontal Scroll (Matching SavedTourArchiveCard, but with remove icon on active items)
             if (plannedStops.isNotEmpty()) {
                 Text(
-                    text = "Ausgewählte Orte & Events der Tour (${plannedStops.size}):",
+                    text = if (appLanguage.isGerman) {
+                        "Ausgewählte Orte & Events der Tour (${plannedStops.size}):"
+                    } else {
+                        "Selected places & events of the tour (${plannedStops.size}):"
+                    },
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF334155)
@@ -510,7 +604,11 @@ private fun ActiveTourCard(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "km ${stop.routeProgressKm.roundToInt()} • +${String.format("%.1f", stop.detourDistanceKm)} km",
+                                        text = if (stop.detourDistanceKm < 0.15) {
+                                            "km ${stop.routeProgressKm.roundToInt()} • Direkt am Track"
+                                        } else {
+                                            "km ${stop.routeProgressKm.roundToInt()} • +${String.format(java.util.Locale.US, "%.1f", stop.detourDistanceKm * 2.0)} km"
+                                        },
                                         fontSize = 10.sp,
                                         color = Color(0xFF64748B)
                                     )
@@ -559,7 +657,14 @@ private fun ActiveTourCard(
                         ) {
                             Icon(Icons.Default.AddLocationAlt, contentDescription = null, tint = Color(0xFF006B5E), modifier = Modifier.size(18.dp))
                             Spacer(Modifier.height(3.dp))
-                            Text("+ Mehr Orte", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF006B5E))
+                            Text(
+                                text = if (appLanguage.isGerman) "+ Mehr Orte" else "+ More Places",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color(0xFF006B5E),
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -577,13 +682,19 @@ private fun ActiveTourCard(
                     ) {
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Direkter Track ohne Zwischenstopps",
+                                text = if (appLanguage.isGerman) "Direkter Track ohne Zwischenstopps" else "Direct track without stops",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF334155)
+                                color = Color(0xFF334155),
+                                maxLines = 1,
+                                softWrap = false
                             )
                             Text(
-                                text = "Wähle Orte im Tab 'Ergebnisse' oder klicke auf 'Optimaler Mix'.",
+                                text = if (appLanguage.isGerman) {
+                                    "Wähle Orte im Tab 'Ergebnisse' oder klicke auf 'Optimaler Mix'."
+                                } else {
+                                    "Select places in 'Results' or tap 'Optimal Mix'."
+                                },
                                 fontSize = 11.sp,
                                 color = Color(0xFF64748B)
                             )
@@ -593,7 +704,12 @@ private fun ActiveTourCard(
                             contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
                             modifier = Modifier.height(32.dp)
                         ) {
-                            Text("Orte wählen", fontSize = 11.sp)
+                            Text(
+                                text = if (appLanguage.isGerman) "Orte wählen" else "Select places",
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -603,7 +719,13 @@ private fun ActiveTourCard(
             OutlinedTextField(
                 value = notes,
                 onValueChange = onNotesChange,
-                label = { Text("Touren-Notizen, Packliste & Event-Tickets") },
+                label = { Text(if (appLanguage.isGerman) "Touren-Notizen, Packliste & Event-Tickets" else "Tour notes, packing list & tickets") },
+                textStyle = androidx.compose.ui.text.TextStyle(
+                    color = Color(0xFF0F172A),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                ),
+                colors = seizeInputFieldColors(),
                 leadingIcon = {
                     Icon(Icons.Default.EditNote, contentDescription = null, tint = Color(0xFF006B5E))
                 },
@@ -641,7 +763,9 @@ private fun ActiveTourCard(
                             text = if (appLanguage.isGerman) "✓ Gespeichert" else "✓ Saved",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF15803D)
+                            color = Color(0xFF15803D),
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 } else {
@@ -665,7 +789,9 @@ private fun ActiveTourCard(
                         Text(
                             text = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
                             fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
                         )
                     }
                 }
@@ -687,12 +813,17 @@ private fun ActiveTourCard(
                         text = "Google Maps",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
                 IconButton(onClick = onShareTrip, modifier = Modifier.size(38.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Teilen", tint = Color(0xFF006B5E))
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = if (appLanguage.isGerman) "Teilen" else "Share",
+                        tint = Color(0xFF006B5E)
+                    )
                 }
             }
         }
@@ -702,6 +833,7 @@ private fun ActiveTourCard(
 @Composable
 private fun SavedTourArchiveCard(
     trip: SavedTrip,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onOpenTourOnMap: () -> Unit,
     onTransferToGoogleMaps: () -> Unit,
     onOpenStopDetail: (RouteDiscoveryItem) -> Unit,
@@ -710,8 +842,8 @@ private fun SavedTourArchiveCard(
 ) {
     val stayMinutes = trip.stops.size * 40
     val totalDayMinutes = trip.trackDurationMinutes + stayMinutes
-    val difficulty = computeTourDifficultyLabel(trip.travelMode, trip.trackDistanceKm, trip.elevationGainMeters)
-    val energyEstimate = computeTourEnergyEstimate(trip.travelMode, trip.trackDistanceKm, trip.elevationGainMeters)
+    val difficulty = computeTourDifficultyLabel(trip.travelMode, trip.trackDistanceKm, trip.elevationGainMeters, appLanguage)
+    val energyEstimate = computeTourEnergyEstimate(trip.travelMode, trip.trackDistanceKm, trip.elevationGainMeters, appLanguage)
     val moveRatio = (trip.trackDurationMinutes.toFloat() / totalDayMinutes.coerceAtLeast(1).toFloat()).coerceIn(0.15f, 1f)
 
     Card(
@@ -745,7 +877,9 @@ private fun SavedTourArchiveCard(
                                 color = Color(0xFF0369A1),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                         Surface(
@@ -753,11 +887,13 @@ private fun SavedTourArchiveCard(
                             shape = RoundedCornerShape(8.dp)
                         ) {
                             Text(
-                                text = "${trip.travelMode.label} • $difficulty",
+                                text = "${trip.travelMode.localizedLabel(appLanguage)} • $difficulty",
                                 color = Color(0xFF2CE5C6),
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
                     }
@@ -771,57 +907,101 @@ private fun SavedTourArchiveCard(
                 }
 
                 IconButton(onClick = onDeleteTrip, modifier = Modifier.size(32.dp)) {
-                    Icon(Icons.Default.DeleteOutline, contentDescription = "Löschen", tint = Color(0xFF94A3B8))
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = if (appLanguage.isGerman) "Löschen" else "Delete",
+                        tint = Color(0xFF94A3B8)
+                    )
                 }
             }
 
-            // Saved Tour Metrics Box with Visual Time Breakdown Bar
+            // Saved Tour Metrics Box with Vertically Stacked Full-Width Rows
             Surface(
-                color = Color(0xFFF1F5F9),
-                shape = RoundedCornerShape(12.dp),
+                color = Color(0xFFF8FAFC),
+                shape = RoundedCornerShape(14.dp),
+                border = BorderStroke(1.dp, Color(0xFFE2E8F0)),
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 12.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(7.dp)
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    // Row 1: Distance
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF006B5E), modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.Route, contentDescription = null, tint = Color(0xFF006B5E), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
-                                text = "${String.format("%.1f", trip.trackDistanceKm)} km",
-                                fontWeight = FontWeight.ExtraBold,
+                                text = if (appLanguage.isGerman) "Gesamtdistanz:" else "Total distance:",
                                 fontSize = 12.sp,
-                                color = Color(0xFF0F172A)
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475569)
                             )
                         }
+                        Text(
+                            text = "${String.format("%.1f", trip.trackDistanceKm)} km",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF0F172A)
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                    // Row 2: Elevation
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Terrain, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.Terrain, contentDescription = null, tint = Color(0xFFD97706), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
-                                text = "↑${trip.elevationGainMeters} / ↓${trip.elevationLossMeters} Hm",
-                                fontWeight = FontWeight.ExtraBold,
+                                text = if (appLanguage.isGerman) "Höhenmeter (Auf / Ab):" else "Elevation (Gain / Loss):",
                                 fontSize = 12.sp,
-                                color = Color(0xFF0F172A)
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475569)
                             )
                         }
+                        Text(
+                            text = "↑ ${trip.elevationGainMeters} Hm • ↓ ${trip.elevationLossMeters} Hm",
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF0F172A)
+                        )
+                    }
+
+                    HorizontalDivider(color = Color(0xFFE2E8F0))
+
+                    // Row 3: Pure travel time
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(15.dp))
-                            Spacer(Modifier.width(4.dp))
+                            Icon(Icons.Default.Schedule, contentDescription = null, tint = Color(0xFF0284C7), modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
-                                text = formatDuration(trip.trackDurationMinutes),
-                                fontWeight = FontWeight.ExtraBold,
+                                text = if (appLanguage.isGerman) "Reine Fahr-/Gehzeit:" else "Pure travel time:",
                                 fontSize = 12.sp,
-                                color = Color(0xFF0F172A)
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFF475569)
                             )
                         }
+                        Text(
+                            text = formatDuration(trip.trackDurationMinutes),
+                            fontWeight = FontWeight.ExtraBold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF0F172A)
+                        )
                     }
 
                     // Visual Time Proportion Bar
@@ -852,16 +1032,20 @@ private fun SavedTourArchiveCard(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "⏱ Gesamt inkl. ${trip.stops.size} Stopps: ~${formatDuration(totalDayMinutes)}",
-                            fontSize = 11.sp,
-                            color = Color(0xFF475569),
-                            fontWeight = FontWeight.Medium
+                            text = if (appLanguage.isGerman) {
+                                "⏱ Gesamt inkl. ${trip.stops.size} Stopps: ~${formatDuration(totalDayMinutes)}"
+                            } else {
+                                "⏱ Total incl. ${trip.stops.size} stops: ~${formatDuration(totalDayMinutes)}"
+                            },
+                            fontSize = 11.5.sp,
+                            color = Color(0xFF334155),
+                            fontWeight = FontWeight.SemiBold
                         )
                         Text(
                             text = "⚡ ${energyEstimate.first}",
-                            fontSize = 11.sp,
+                            fontSize = 11.5.sp,
                             color = Color(0xFF006B5E),
-                            fontWeight = FontWeight.SemiBold
+                            fontWeight = FontWeight.Bold
                         )
                     }
                 }
@@ -870,7 +1054,11 @@ private fun SavedTourArchiveCard(
             // Horizontal Scroll of Included Places & Events with their Thumbnail Images
             if (trip.stops.isNotEmpty()) {
                 Text(
-                    text = "Gespeicherte Orte & Events der Tour (${trip.stops.size}):",
+                    text = if (appLanguage.isGerman) {
+                        "Gespeicherte Orte & Events der Tour (${trip.stops.size}):"
+                    } else {
+                        "Saved places & events of the tour (${trip.stops.size}):"
+                    },
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color(0xFF334155)
@@ -903,13 +1091,15 @@ private fun SavedTourArchiveCard(
                                 Spacer(Modifier.width(8.dp))
                                 Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = stop.category.label,
+                                        text = stop.category.localizedLabel(appLanguage),
                                         color = stop.category.color,
                                         fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                     Text(
-                                        text = stop.title,
+                                        text = stop.displayTitle(appLanguage),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 12.sp,
                                         color = Color(0xFF0F172A),
@@ -917,13 +1107,20 @@ private fun SavedTourArchiveCard(
                                         overflow = TextOverflow.Ellipsis
                                     )
                                     Text(
-                                        text = "km ${stop.routeProgressKm.roundToInt()} • +${String.format("%.1f", stop.detourDistanceKm)} km",
+                                        text = if (stop.detourDistanceKm < 0.15) {
+                                            "km ${stop.routeProgressKm.roundToInt()} • Direkt am Track"
+                                        } else {
+                                            "km ${stop.routeProgressKm.roundToInt()} • +${String.format(java.util.Locale.US, "%.1f", stop.detourDistanceKm * 2.0)} km"
+                                        },
                                         fontSize = 10.sp,
-                                        color = Color(0xFF64748B)
+                                        color = Color(0xFF64748B),
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
-                                    stop.eventDateText?.let { ev ->
+                                    val evDate = stop.displayEventDate(appLanguage)
+                                    if (evDate != null) {
                                         Text(
-                                            text = "📅 $ev",
+                                            text = "📅 $evDate",
                                             fontSize = 9.sp,
                                             color = Color(0xFFBE185D),
                                             fontWeight = FontWeight.SemiBold,
@@ -940,7 +1137,7 @@ private fun SavedTourArchiveCard(
 
             if (trip.notes.isNotBlank()) {
                 Text(
-                    text = "📝 Notiz: ${trip.notes}",
+                    text = "${if (appLanguage.isGerman) "📝 Notiz" else "📝 Note"}: ${trip.notes}",
                     fontSize = 12.sp,
                     color = Color(0xFF475569)
                 )
@@ -964,7 +1161,13 @@ private fun SavedTourArchiveCard(
                 ) {
                     Icon(Icons.Default.Map, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(5.dp))
-                    Text("Karte", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        text = if (appLanguage.isGerman) "Karte" else "Map",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
 
                 Button(
@@ -984,52 +1187,69 @@ private fun SavedTourArchiveCard(
                         text = "Google Maps",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
 
                 IconButton(onClick = onShareTrip, modifier = Modifier.size(36.dp)) {
-                    Icon(Icons.Default.Share, contentDescription = "Teilen", tint = Color(0xFF006B5E))
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = if (appLanguage.isGerman) "Teilen" else "Share",
+                        tint = Color(0xFF006B5E)
+                    )
                 }
             }
         }
     }
 }
 
-private fun computeTourDifficultyLabel(mode: TravelMode, distanceKm: Double, elevationGain: Int): String {
+private fun computeTourDifficultyLabel(
+    mode: TravelMode,
+    distanceKm: Double,
+    elevationGain: Int,
+    appLanguage: AppLanguage = AppLanguage.DE
+): String {
+    val isDe = appLanguage.isGerman
     return when (mode) {
         TravelMode.HIKE -> when {
-            elevationGain > 750 || distanceKm > 22.0 -> "Anspruchsvoll / Bergtour"
-            elevationGain > 320 || distanceKm > 12.0 -> "Moderat / Aktiv"
-            else -> "Leichte Genuss-Wanderung"
+            elevationGain > 750 || distanceKm > 22.0 -> if (isDe) "Anspruchsvoll / Bergtour" else "Challenging / Alpine Tour"
+            elevationGain > 320 || distanceKm > 12.0 -> if (isDe) "Moderat / Aktiv" else "Moderate / Active"
+            else -> if (isDe) "Leichte Genuss-Wanderung" else "Easy Scenic Hike"
         }
         TravelMode.BIKE -> when {
-            elevationGain > 900 || distanceKm > 75.0 -> "Sportliche Rad-Etappe"
-            elevationGain > 400 || distanceKm > 38.0 -> "Moderat / Panorama-Radtour"
-            else -> "Entspannte Genuss-Radtour"
+            elevationGain > 900 || distanceKm > 75.0 -> if (isDe) "Sportliche Rad-Etappe" else "Athletic Cycling Stage"
+            elevationGain > 400 || distanceKm > 38.0 -> if (isDe) "Moderat / Panorama-Radtour" else "Moderate / Scenic Bike Tour"
+            else -> if (isDe) "Entspannte Genuss-Radtour" else "Relaxed Leisure Bike Ride"
         }
         TravelMode.CAR -> when {
-            distanceKm > 260.0 -> "Tages-Roadtrip"
-            elevationGain > 800 -> "Alpen- / Panorama-Passfahrt"
-            else -> "Komfort-Entdeckertour"
+            distanceKm > 260.0 -> if (isDe) "Tages-Roadtrip" else "Full-Day Roadtrip"
+            elevationGain > 800 -> if (isDe) "Alpen- / Panorama-Passfahrt" else "Alpine / Scenic Pass Drive"
+            else -> if (isDe) "Komfort-Entdeckertour" else "Comfort Explorer Tour"
         }
     }
 }
 
-private fun computeTourEnergyEstimate(mode: TravelMode, distanceKm: Double, elevationGain: Int): Pair<String, String> {
+private fun computeTourEnergyEstimate(
+    mode: TravelMode,
+    distanceKm: Double,
+    elevationGain: Int,
+    appLanguage: AppLanguage = AppLanguage.DE
+): Pair<String, String> {
+    val isDe = appLanguage.isGerman
     return when (mode) {
         TravelMode.HIKE -> {
             val kcal = (distanceKm * 52.0 + elevationGain * 0.65).roundToInt()
-            "~$kcal kcal" to "Wander-Energie"
+            "~$kcal kcal" to (if (isDe) "Wander-Energie" else "Hike Energy")
         }
         TravelMode.BIKE -> {
             val kcal = (distanceKm * 26.0 + elevationGain * 0.55).roundToInt()
-            "~$kcal kcal" to "Rad-Energie"
+            "~$kcal kcal" to (if (isDe) "Rad-Energie" else "Bike Energy")
         }
         TravelMode.CAR -> {
             val liters = distanceKm * 0.066
             val kwh = distanceKm * 0.175
-            "~${String.format("%.1f", liters)} L / ${String.format("%.1f", kwh)} kWh" to "Richtverbrauch"
+            "~${String.format("%.1f", liters)} L / ${String.format("%.1f", kwh)} kWh" to (if (isDe) "Richtverbrauch" else "Est. Fuel / Energy")
         }
     }
 }
@@ -1058,7 +1278,8 @@ private fun shareTripItinerary(
         } else {
             appendLine("🌟 Integrierte Zwischenstopps & Events (${stops.size}):")
             stops.forEachIndexed { idx, s ->
-                appendLine("${idx + 1}. [${s.category.label}] ${s.title} (bei km ${s.routeProgressKm.roundToInt()}, +${String.format("%.1f", s.detourDistanceKm)} km Abstecher)")
+                val detourText = if (s.detourDistanceKm < 0.15) "Direkt am Track" else "+${String.format(java.util.Locale.US, "%.1f", s.detourDistanceKm * 2.0)} km Abstecher"
+                appendLine("${idx + 1}. [${s.category.label}] ${s.title} (bei km ${s.routeProgressKm.roundToInt()}, $detourText)")
                 s.eventDateText?.let { appendLine("   📅 $it") }
             }
         }

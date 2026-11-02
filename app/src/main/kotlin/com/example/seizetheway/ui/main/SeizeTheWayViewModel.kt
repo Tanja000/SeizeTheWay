@@ -12,24 +12,28 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
-enum class DiscoverySortOrder(val label: String) {
-    ROUTE_PROGRESS("Entlang der Route"),
-    MIN_DETOUR("Kleinster Umweg"),
-    TOP_RATED("Top-Empfehlungen")
+enum class DiscoverySortOrder(val labelDe: String, val labelEn: String) {
+    ROUTE_PROGRESS("Entlang der Route", "Along Route"),
+    MIN_DETOUR("Kleinster Umweg", "Shortest Detour"),
+    TOP_RATED("Top-Empfehlungen", "Top Rated");
+
+    val label: String get() = labelDe
+    fun localized(lang: AppLanguage): String = if (lang.isGerman) labelDe else labelEn
 }
 
 data class SeizeTheWayUiState(
     val activeTab: AppTab = AppTab.SEARCH,
     val activeResultCategoryTab: WayCategory? = null,
     val mapDisplayFilter: MapDisplayFilter = MapDisplayFilter.ALL,
-    val originQuery: String = "Aktueller Standort",
-    val destinationQuery: String = "Garmisch-Partenkirchen",
+    val originQuery: String = "Standort wird ermittelt…",
+    val destinationQuery: String = "Starnberg",
+    val userLocationPoint: GeoPoint? = null,
     val isOriginConfirmed: Boolean = true,
     val isDestinationConfirmed: Boolean = true,
     val originSuggestions: List<GeoPoint> = emptyList(),
     val destinationSuggestions: List<GeoPoint> = emptyList(),
     val isDetectingLocation: Boolean = false,
-    val maxDetourKm: Float = 12f,
+    val maxDetourKm: Float = 10f,
     val travelMode: TravelMode = TravelMode.CAR,
     val showAllCategories: Boolean = true,
     val selectedCategories: Set<WayCategory> = WayCategory.entries.toSet(),
@@ -136,15 +140,12 @@ class SeizeTheWayViewModel(
         _uiState.update { it.copy(activeResultCategoryTab = category) }
     }
 
+    @Suppress("MissingPermission")
     fun detectUserLocation(context: Context) {
         viewModelScope.launch {
             _uiState.update { it.copy(isDetectingLocation = true) }
             try {
                 val locManager = context.getSystemService(Context.LOCATION_SERVICE) as? android.location.LocationManager
-                val isGpsEnabled = locManager?.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) == true
-                val isNetEnabled = locManager?.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER) == true
-
-                var lastLoc: android.location.Location? = null
                 val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(
                     context,
                     android.Manifest.permission.ACCESS_FINE_LOCATION
@@ -154,21 +155,64 @@ class SeizeTheWayViewModel(
                     android.Manifest.permission.ACCESS_COARSE_LOCATION
                 ) == android.content.pm.PackageManager.PERMISSION_GRANTED
 
-                if (hasFine || hasCoarse) {
-                    if (isGpsEnabled) {
-                        lastLoc = locManager?.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                var bestLoc: android.location.Location? = null
+
+                if (locManager != null && (hasFine || hasCoarse)) {
+                    val providers = buildList {
+                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                            add(android.location.LocationManager.FUSED_PROVIDER)
+                        } else {
+                            add("fused")
+                        }
+                        add(android.location.LocationManager.GPS_PROVIDER)
+                        add(android.location.LocationManager.NETWORK_PROVIDER)
+                        add(android.location.LocationManager.PASSIVE_PROVIDER)
+                    }.distinct()
+
+                    val nowMs = System.currentTimeMillis()
+                    val cachedCandidates = providers.mapNotNull { provider ->
+                        try {
+                            locManager.getLastKnownLocation(provider)
+                        } catch (_: Exception) {
+                            null
+                        }
                     }
-                    if (lastLoc == null && isNetEnabled) {
-                        lastLoc = locManager?.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+
+                    // Prefer a fresh cached fix (< 10 minutes old) with good accuracy
+                    bestLoc = cachedCandidates
+                        .filter { kotlin.math.abs(nowMs - it.time) < 10 * 60 * 1000L }
+                        .minByOrNull { it.accuracy }
+
+                    // If no fresh location is cached (e.g., right after app installation & permission grant),
+                    // actively request a live location fix from Fused / Network / GPS!
+                    if (bestLoc == null) {
+                        bestLoc = requestActiveDeviceLocation(context, locManager)
+                            ?: cachedCandidates.maxByOrNull { it.time }
                     }
                 }
 
-                if (lastLoc != null) {
-                    val reversed = service.reverseGeocode(lastLoc.latitude, lastLoc.longitude)
-                    val label = "${reversed.name} (Mein Standort)"
-                    _uiState.update {
-                        it.copy(
-                            originQuery = label,
+                if (bestLoc != null) {
+                    val lat = bestLoc.latitude
+                    val lon = bestLoc.longitude
+                    val resolvedName = resolvePlaceNameFromCoordinates(context, lat, lon)
+                    val userPt = GeoPoint(lat, lon, resolvedName)
+
+                    _uiState.update { state ->
+                        val nearbyPresets = getNearbyRecommendedPresets(
+                            mode = state.travelMode,
+                            originQuery = resolvedName,
+                            originPoint = userPt,
+                            lang = state.appLanguage,
+                            nearbyCorridorItems = state.allCorridorItems
+                        )
+                        val bestNearbyDest = nearbyPresets.firstOrNull()?.destinationName ?: state.destinationQuery
+                        val shouldUpdateDest = state.destinationQuery == "Starnberg" ||
+                                state.destinationQuery == "Garmisch-Partenkirchen"
+
+                        state.copy(
+                            originQuery = resolvedName,
+                            userLocationPoint = userPt,
+                            destinationQuery = if (shouldUpdateDest) bestNearbyDest else state.destinationQuery,
                             isOriginConfirmed = true,
                             originSuggestions = emptyList(),
                             isDetectingLocation = false
@@ -176,24 +220,171 @@ class SeizeTheWayViewModel(
                     }
                     executeRouteSearch(switchToResultsTab = false)
                 } else {
-                    _uiState.update {
-                        it.copy(
-                            originQuery = "Aktueller Standort (München)",
-                            isOriginConfirmed = true,
-                            isDetectingLocation = false
-                        )
+                    // Fallback: IP-Geolocation if GPS hardware is disabled or permission was denied
+                    val ipLoc = service.fetchIpLocation()
+                    if (ipLoc != null) {
+                        val cleanCity = ipLoc.name.trim()
+                        val userPt = GeoPoint(ipLoc.lat, ipLoc.lon, cleanCity)
+                        _uiState.update { state ->
+                            val nearbyPresets = getNearbyRecommendedPresets(
+                                mode = state.travelMode,
+                                originQuery = cleanCity,
+                                originPoint = userPt,
+                                lang = state.appLanguage,
+                                nearbyCorridorItems = state.allCorridorItems
+                            )
+                            val bestNearbyDest = nearbyPresets.firstOrNull()?.destinationName ?: state.destinationQuery
+                            val shouldUpdateDest = state.destinationQuery == "Starnberg" ||
+                                    state.destinationQuery == "Garmisch-Partenkirchen"
+
+                            state.copy(
+                                originQuery = cleanCity,
+                                userLocationPoint = userPt,
+                                destinationQuery = if (shouldUpdateDest) bestNearbyDest else state.destinationQuery,
+                                isOriginConfirmed = true,
+                                originSuggestions = emptyList(),
+                                isDetectingLocation = false
+                            )
+                        }
+                        executeRouteSearch(switchToResultsTab = false)
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                originQuery = if (it.originQuery.isBlank() || it.originQuery.contains("ermittelt")) "München" else it.originQuery,
+                                isOriginConfirmed = true,
+                                isDetectingLocation = false
+                            )
+                        }
                     }
                 }
             } catch (_: Exception) {
                 _uiState.update {
                     it.copy(
-                        originQuery = "Aktueller Standort (München)",
+                        originQuery = if (it.originQuery.isBlank() || it.originQuery.contains("ermittelt")) "München" else it.originQuery,
                         isOriginConfirmed = true,
                         isDetectingLocation = false
                     )
                 }
             }
         }
+    }
+
+    @Suppress("MissingPermission")
+    private suspend fun requestActiveDeviceLocation(
+        context: Context,
+        locManager: android.location.LocationManager
+    ): android.location.Location? = kotlinx.coroutines.withTimeoutOrNull(6500L) {
+        kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+            val activeProviders = listOf(
+                "fused",
+                android.location.LocationManager.NETWORK_PROVIDER,
+                android.location.LocationManager.GPS_PROVIDER
+            ).filter { provider ->
+                try {
+                    locManager.isProviderEnabled(provider)
+                } catch (_: Exception) {
+                    false
+                }
+            }
+
+            if (activeProviders.isEmpty()) {
+                if (cont.isActive) cont.resume(null) {}
+                return@suspendCancellableCoroutine
+            }
+
+            val listener = object : android.location.LocationListener {
+                override fun onLocationChanged(location: android.location.Location) {
+                    try {
+                        locManager.removeUpdates(this)
+                    } catch (_: Exception) {
+                    }
+                    if (cont.isActive) {
+                        cont.resume(location) {}
+                    }
+                }
+
+                @Deprecated("Deprecated in Java")
+                override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                override fun onProviderEnabled(provider: String) {}
+                override fun onProviderDisabled(provider: String) {}
+            }
+
+            try {
+                // On Android 11+ (API 30+), also trigger getCurrentLocation for instant Fused/Network fix
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.R) {
+                    for (provider in activeProviders) {
+                        try {
+                            locManager.getCurrentLocation(
+                                provider,
+                                null,
+                                androidx.core.content.ContextCompat.getMainExecutor(context)
+                            ) { loc ->
+                                if (loc != null && cont.isActive) {
+                                    try {
+                                        locManager.removeUpdates(listener)
+                                    } catch (_: Exception) {
+                                    }
+                                    cont.resume(loc) {}
+                                }
+                            }
+                        } catch (_: Exception) {
+                        }
+                    }
+                }
+
+                for (provider in activeProviders) {
+                    try {
+                        locManager.requestLocationUpdates(
+                            provider,
+                            0L,
+                            0f,
+                            listener,
+                            android.os.Looper.getMainLooper()
+                        )
+                    } catch (_: Exception) {
+                    }
+                }
+            } catch (_: Exception) {
+                if (cont.isActive) cont.resume(null) {}
+            }
+
+            cont.invokeOnCancellation {
+                try {
+                    locManager.removeUpdates(listener)
+                } catch (_: Exception) {
+                }
+            }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun resolvePlaceNameFromCoordinates(
+        context: Context,
+        lat: Double,
+        lon: Double
+    ): String = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        // 1. Try Android's built-in Geocoder first (very fast & accurate for local municipality/town)
+        try {
+            if (android.location.Geocoder.isPresent()) {
+                val geocoder = android.location.Geocoder(context, java.util.Locale.GERMAN)
+                val addresses = geocoder.getFromLocation(lat, lon, 3)
+                if (!addresses.isNullOrEmpty()) {
+                    for (addr in addresses) {
+                        val city = addr.locality?.takeIf { it.isNotBlank() }
+                            ?: addr.subLocality?.takeIf { it.isNotBlank() }
+                            ?: addr.subAdminArea?.takeIf { it.isNotBlank() }
+                        if (!city.isNullOrBlank()) {
+                            return@withContext city.trim()
+                        }
+                    }
+                }
+            }
+        } catch (_: Exception) {
+        }
+
+        // 2. Fallback to Nominatim / Photon reverse geocoding
+        val reversed = service.reverseGeocode(lat, lon)
+        reversed.name.trim().ifBlank { "Mein Standort" }
     }
 
     fun updateOrigin(value: String) {
@@ -307,24 +498,19 @@ class SeizeTheWayViewModel(
 
     fun updateTravelMode(mode: TravelMode) {
         val current = _uiState.value
-        val allPresets = CAR_ROUTE_PRESETS + BIKE_ROUTE_PRESETS + HIKE_ROUTE_PRESETS
-        val wasUsingPreset = allPresets.any {
-            it.originName.equals(current.originQuery, ignoreCase = true) &&
-                    it.destinationName.equals(current.destinationQuery, ignoreCase = true)
-        }
-        val modeDefaultPreset = presetsForTravelMode(mode).first()
+        val nearbyForMode = getNearbyRecommendedPresets(
+            mode = mode,
+            originQuery = current.originQuery,
+            originPoint = current.userLocationPoint ?: current.route?.origin,
+            lang = current.appLanguage,
+            nearbyCorridorItems = current.allCorridorItems
+        ).firstOrNull() ?: presetsForTravelMode(mode).first()
 
         _uiState.update { state ->
-            if (wasUsingPreset) {
-                state.copy(
-                    travelMode = mode,
-                    originQuery = modeDefaultPreset.originName,
-                    destinationQuery = modeDefaultPreset.destinationName,
-                    maxDetourKm = modeDefaultPreset.defaultDetourKm
-                )
-            } else {
-                state.copy(travelMode = mode)
-            }
+            state.copy(
+                travelMode = mode,
+                maxDetourKm = nearbyForMode.defaultDetourKm
+            )
         }
         executeRouteSearch(switchToResultsTab = false, preservePlannedStops = true)
     }
@@ -641,7 +827,8 @@ class SeizeTheWayViewModel(
                     keywordsRaw = snapshot.keywordsQuery,
                     onlyStrictKeywordMatches = false,
                     travelMode = snapshot.travelMode,
-                    apiKeys = snapshot.apiKeys
+                    apiKeys = snapshot.apiKeys,
+                    originOverride = snapshot.userLocationPoint
                 )
 
                 val combinedCorridorItems = (preservedStopsList + response.allCorridorItems).distinctBy { it.id }

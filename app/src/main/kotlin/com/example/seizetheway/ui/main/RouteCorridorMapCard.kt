@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.seizetheway.model.*
+import com.example.seizetheway.data.*
 import kotlinx.coroutines.launch
 import kotlin.math.*
 
@@ -135,9 +136,9 @@ fun DedicatedMapTabScreen(
                             }
                             Text(
                                 text = if (isRecalculatingTrack) {
-                                    "Track wird an $inTrackCount ausgewählte Stopps angepasst…"
+                                    if (appLanguage.isGerman) "Track wird an $inTrackCount ausgewählte Stopps angepasst…" else "Adjusting track to $inTrackCount selected stops…"
                                 } else {
-                                    "${route.travelMode.trackTypeLabel} • $inTrackCount Stopps im Track integriert"
+                                    "${route.travelMode.localizedTrackType(appLanguage)} • $inTrackCount ${if (appLanguage.isGerman) "Stopps im Track integriert" else "stops in track"}"
                                 },
                                 color = Color(0xFF2CE5C6),
                                 fontSize = 11.sp,
@@ -171,7 +172,9 @@ fun DedicatedMapTabScreen(
                                         text = if (appLanguage.isGerman) "✓ Gespeichert" else "✓ Saved",
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = Color(0xFF2CE5C6)
+                                        color = Color(0xFF2CE5C6),
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             } else {
@@ -186,7 +189,7 @@ fun DedicatedMapTabScreen(
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.BookmarkAdd,
-                                        contentDescription = "Tour speichern",
+                                        contentDescription = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
                                         tint = Color.White,
                                         modifier = Modifier.size(15.dp)
                                     )
@@ -194,7 +197,9 @@ fun DedicatedMapTabScreen(
                                     Text(
                                         text = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
                                         fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        softWrap = false
                                     )
                                 }
                             }
@@ -210,7 +215,7 @@ fun DedicatedMapTabScreen(
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = "Großansicht",
+                                    contentDescription = if (appLanguage.isGerman) "Großansicht" else "Fullscreen",
                                     tint = Color(0xFF2CE5C6),
                                     modifier = Modifier.size(17.dp)
                                 )
@@ -218,7 +223,9 @@ fun DedicatedMapTabScreen(
                                 Text(
                                     text = if (appLanguage.isGerman) "Großansicht" else "Fullscreen",
                                     fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -229,6 +236,7 @@ fun DedicatedMapTabScreen(
                         currentFilter = mapDisplayFilter,
                         inTrackCount = inTrackCount,
                         allCount = allCorridorCount,
+                        appLanguage = appLanguage,
                         onSelectFilter = onMapDisplayFilterChange,
                         modifier = Modifier
                             .fillMaxWidth()
@@ -243,6 +251,7 @@ fun DedicatedMapTabScreen(
                         elevationLossMeters = route.elevationLossMeters,
                         durationMinutes = route.durationMinutes,
                         stopsCount = inTrackCount,
+                        appLanguage = appLanguage,
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 12.dp)
@@ -325,11 +334,15 @@ fun DedicatedMapTabScreen(
                         Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            text = "Track mit $inTrackCount Stopps auf Google Maps übertragen (${route.travelMode.label})",
+                            text = if (appLanguage.isGerman) {
+                                if (inTrackCount > 0) "Track mit $inTrackCount Stopps auf Google Maps (${route.travelMode.localizedLabel(appLanguage)})" else "Track auf Google Maps (${route.travelMode.localizedLabel(appLanguage)})"
+                            } else {
+                                if (inTrackCount > 0) "Transfer Track with $inTrackCount Stops to Google Maps (${route.travelMode.localizedLabel(appLanguage)})" else "Transfer Track to Google Maps (${route.travelMode.localizedLabel(appLanguage)})"
+                            },
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 12.sp,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            softWrap = false
                         )
                     }
                 }
@@ -355,19 +368,23 @@ fun DedicatedMapTabScreen(
                     Spacer(Modifier.width(6.dp))
                     Text(
                         text = if (mapDisplayFilter == MapDisplayFilter.IN_TRACK) {
-                            "Orte & Events im Track (${items.size})"
+                            if (appLanguage.isGerman) "Orte & Events im Track (${items.size})" else "Places & Events in Track (${items.size})"
                         } else {
-                            "Alle Orte im Korridor (${items.size})"
+                            if (appLanguage.isGerman) "Alle Orte im Korridor (${items.size})" else "All Places in Corridor (${items.size})"
                         },
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 14.sp,
-                        color = Color(0xFF0F172A)
+                        color = Color(0xFF0F172A),
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
                 Text(
-                    text = "Klick auf Icon springt hierher",
+                    text = if (appLanguage.isGerman) "Klick auf Icon springt hierher" else "Tap icon on map to jump here",
                     fontSize = 11.sp,
-                    color = Color(0xFF64748B)
+                    color = Color(0xFF64748B),
+                    maxLines = 1,
+                    softWrap = false
                 )
             }
         }
@@ -381,6 +398,7 @@ fun DedicatedMapTabScreen(
                 item = item,
                 isSelectedFromMap = isSelected,
                 isPlanned = isPlanned,
+                appLanguage = appLanguage,
                 onClickCard = { onOpenFullDetailSheet(item) },
                 onTogglePlanned = { onTogglePlanned(item.id) }
             )
@@ -402,6 +420,7 @@ fun DedicatedMapTabScreen(
             plannedStopIds = plannedStopIds,
             highlightedItemId = highlightedItemId,
             maxDetourKm = maxDetourKm,
+            appLanguage = appLanguage,
             onSelectItem = onSelectItem,
             onOpenFullDetailSheet = onOpenFullDetailSheet,
             onTogglePlanned = onTogglePlanned,
@@ -420,6 +439,7 @@ fun MapViewModeSwitcherBar(
     currentFilter: MapDisplayFilter,
     inTrackCount: Int,
     allCount: Int,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onSelectFilter: (MapDisplayFilter) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -436,11 +456,13 @@ fun MapViewModeSwitcherBar(
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             Text(
-                text = "Ansicht:",
+                text = if (appLanguage.isGerman) "Ansicht:" else "View:",
                 color = Color(0xFF94A3B8),
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 8.dp, end = 4.dp)
+                modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+                maxLines = 1,
+                softWrap = false
             )
 
             // Option 1: "Im Track"
@@ -466,10 +488,12 @@ fun MapViewModeSwitcherBar(
                     )
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        text = "Im Track ($inTrackCount)",
+                        text = "${if (appLanguage.isGerman) "Im Track" else "In Track"} ($inTrackCount)",
                         color = if (inTrackSelected) Color(0xFF081224) else Color.White,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -497,10 +521,12 @@ fun MapViewModeSwitcherBar(
                     )
                     Spacer(Modifier.width(5.dp))
                     Text(
-                        text = "Alle ($allCount)",
+                        text = "${if (appLanguage.isGerman) "Alle" else "All"} ($allCount)",
                         color = if (allSelected) Color(0xFF081224) else Color.White,
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.ExtraBold
+                        fontWeight = FontWeight.ExtraBold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
@@ -515,6 +541,7 @@ fun TrackMetricsStrip(
     elevationLossMeters: Int,
     durationMinutes: Int,
     stopsCount: Int,
+    appLanguage: AppLanguage = AppLanguage.DE,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -532,26 +559,26 @@ fun TrackMetricsStrip(
         ) {
             MetricColumnItem(
                 icon = Icons.Default.Route,
-                label = "Distanz",
+                label = if (appLanguage.isGerman) "Distanz" else "Distance",
                 value = "${String.format("%.1f", distanceKm)} km",
                 tint = Color(0xFF2CE5C6)
             )
             MetricColumnItem(
                 icon = Icons.Default.Terrain,
-                label = "Höhenmeter",
+                label = if (appLanguage.isGerman) "Höhenmeter" else "Elevation",
                 value = "↑$elevationGainMeters / ↓$elevationLossMeters Hm",
                 tint = Color(0xFFFFD15C)
             )
             MetricColumnItem(
                 icon = Icons.Default.Schedule,
-                label = "Reisedauer",
+                label = if (appLanguage.isGerman) "Reisedauer" else "Duration",
                 value = formatDuration(durationMinutes),
                 tint = Color(0xFF38BDF8)
             )
             MetricColumnItem(
                 icon = Icons.Default.Flag,
-                label = "Im Track",
-                value = "$stopsCount Stopps",
+                label = if (appLanguage.isGerman) "Im Track" else "In Track",
+                value = "$stopsCount ${if (appLanguage.isGerman) "Stopps" else "Stops"}",
                 tint = Color(0xFFFF8A3D)
             )
         }
@@ -957,6 +984,7 @@ fun FullscreenRouteMapDialog(
     plannedStopIds: Set<String>,
     highlightedItemId: String?,
     maxDetourKm: Float,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onSelectItem: (RouteDiscoveryItem) -> Unit,
     onOpenFullDetailSheet: (RouteDiscoveryItem) -> Unit,
     onTogglePlanned: (String) -> Unit,
@@ -986,7 +1014,7 @@ fun FullscreenRouteMapDialog(
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Großansicht: ${route.origin.name} → ${route.destination.name}",
+                            text = "${if (appLanguage.isGerman) "Großansicht" else "Fullscreen"}: ${route.origin.name} → ${route.destination.name}",
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
                             fontSize = 15.sp,
@@ -994,9 +1022,11 @@ fun FullscreenRouteMapDialog(
                             overflow = TextOverflow.Ellipsis
                         )
                         Text(
-                            text = "${route.travelMode.trackTypeLabel} • Klick auf ein Icon springt zur Beschreibung unten",
+                            text = "${route.travelMode.localizedTrackType(appLanguage)} • ${if (appLanguage.isGerman) "Klick auf ein Icon springt zur Beschreibung unten" else "Tap an icon to jump to description below"}",
                             color = Color(0xFF2CE5C6),
-                            fontSize = 11.sp
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
 
@@ -1012,7 +1042,13 @@ fun FullscreenRouteMapDialog(
                         ) {
                             Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Tour speichern", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            Text(
+                                text = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
 
                         FilledTonalButton(
@@ -1026,7 +1062,13 @@ fun FullscreenRouteMapDialog(
                         ) {
                             Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Google Maps", fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(
+                                text = "Google Maps",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.ExtraBold,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
 
                         FilledTonalButton(
@@ -1040,7 +1082,12 @@ fun FullscreenRouteMapDialog(
                         ) {
                             Icon(Icons.Default.FullscreenExit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
-                            Text("Schließen", fontSize = 11.sp)
+                            Text(
+                                text = if (appLanguage.isGerman) "Schließen" else "Close",
+                                fontSize = 11.sp,
+                                maxLines = 1,
+                                softWrap = false
+                            )
                         }
                     }
                 }
@@ -1050,6 +1097,7 @@ fun FullscreenRouteMapDialog(
                     currentFilter = mapDisplayFilter,
                     inTrackCount = inTrackCount,
                     allCount = allCorridorCount,
+                    appLanguage = appLanguage,
                     onSelectFilter = onMapDisplayFilterChange,
                     modifier = Modifier
                         .fillMaxWidth()
@@ -1064,6 +1112,7 @@ fun FullscreenRouteMapDialog(
                     elevationLossMeters = route.elevationLossMeters,
                     durationMinutes = route.durationMinutes,
                     stopsCount = inTrackCount,
+                    appLanguage = appLanguage,
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 12.dp)
@@ -1114,19 +1163,23 @@ fun FullscreenRouteMapDialog(
                         ) {
                             Text(
                                 text = if (mapDisplayFilter == MapDisplayFilter.IN_TRACK) {
-                                    "Orte & Events im Track (${items.size})"
+                                    if (appLanguage.isGerman) "Orte & Events im Track (${items.size})" else "Places & Events in Track (${items.size})"
                                 } else {
-                                    "Alle Orte im Korridor (${items.size})"
+                                    if (appLanguage.isGerman) "Alle Orte im Korridor (${items.size})" else "All Places in Corridor (${items.size})"
                                 },
                                 fontWeight = FontWeight.ExtraBold,
                                 fontSize = 14.sp,
-                                color = Color(0xFF0F172A)
+                                color = Color(0xFF0F172A),
+                                maxLines = 1,
+                                softWrap = false
                             )
                             Text(
-                                text = "Tippe auf Icon oben zum Springen",
+                                text = if (appLanguage.isGerman) "Tippe auf Icon oben zum Springen" else "Tap icon above to jump",
                                 fontSize = 11.sp,
                                 color = Color(0xFF006B5E),
-                                fontWeight = FontWeight.SemiBold
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                                softWrap = false
                             )
                         }
 
@@ -1142,6 +1195,7 @@ fun FullscreenRouteMapDialog(
                                     item = item,
                                     isSelectedFromMap = item.id == highlightedItemId,
                                     isPlanned = item.id in plannedStopIds,
+                                    appLanguage = appLanguage,
                                     onClickCard = { onOpenFullDetailSheet(item) },
                                     onTogglePlanned = { onTogglePlanned(item.id) }
                                 )
@@ -1160,6 +1214,7 @@ fun MapPointDescriptionCard(
     item: RouteDiscoveryItem,
     isSelectedFromMap: Boolean,
     isPlanned: Boolean,
+    appLanguage: AppLanguage = AppLanguage.DE,
     onClickCard: () -> Unit,
     onTogglePlanned: () -> Unit
 ) {
@@ -1223,10 +1278,12 @@ fun MapPointDescriptionCard(
                                 )
                                 Spacer(Modifier.width(4.dp))
                                 Text(
-                                    text = "#$indexNumber • ${item.category.label}",
+                                    text = "#$indexNumber • ${item.category.localizedLabel(appLanguage)}",
                                     color = Color.White,
                                     fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
@@ -1237,42 +1294,59 @@ fun MapPointDescriptionCard(
                                 shape = RoundedCornerShape(8.dp)
                             ) {
                                 Text(
-                                    text = "Auf Karte ausgewählt",
+                                    text = if (appLanguage.isGerman) "Auf Karte ausgewählt" else "Selected on Map",
                                     color = Color(0xFF2CE5C6),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+                                    maxLines = 1,
+                                    softWrap = false
                                 )
                             }
                         }
                     }
 
                     Text(
-                        text = item.title,
+                        text = item.displayTitle(appLanguage),
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
                         color = Color(0xFF0F172A)
                     )
 
                     Text(
-                        text = "Bei km ${item.routeProgressKm.roundToInt()} • +${String.format("%.1f", item.detourDistanceKm)} km Abstecher (~${item.extraDetourMinutes} Min.)",
+                        text = if (appLanguage.isGerman) {
+                            if (item.detourDistanceKm < 0.15) {
+                                "Bei km ${item.routeProgressKm.roundToInt()} • Direkt an der Route (0 km Abstecher)"
+                            } else {
+                                "Bei km ${item.routeProgressKm.roundToInt()} • +${String.format(java.util.Locale.US, "%.1f", item.detourDistanceKm * 2.0)} km Abstecher (~${item.extraDetourMinutes} Min.)"
+                            }
+                        } else {
+                            if (item.detourDistanceKm < 0.15) {
+                                "At km ${item.routeProgressKm.roundToInt()} • Directly on route (0 km detour)"
+                            } else {
+                                "At km ${item.routeProgressKm.roundToInt()} • +${String.format(java.util.Locale.US, "%.1f", item.detourDistanceKm * 2.0)} km detour (~${item.extraDetourMinutes} min)"
+                            }
+                        },
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF006B5E)
+                        color = Color(0xFF006B5E),
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
 
             Text(
-                text = item.description,
+                text = item.displayDescription(appLanguage),
                 fontSize = 13.sp,
                 color = Color(0xFF334155),
                 lineHeight = 18.sp
             )
 
-            if (item.eventDateText != null || item.openingHours != null) {
+            val eventInfo = item.displayEventDate(appLanguage)
+            if (eventInfo != null || item.openingHours != null) {
                 Text(
-                    text = item.eventDateText ?: "Öffnungszeiten: ${item.openingHours}",
+                    text = eventInfo ?: (if (appLanguage.isGerman) "Öffnungszeiten: ${item.openingHours}" else "Opening hours: ${item.openingHours}"),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = Color(0xFFBE185D)
@@ -1290,7 +1364,12 @@ fun MapPointDescriptionCard(
                 ) {
                     Icon(Icons.Default.Info, contentDescription = null, modifier = Modifier.size(15.dp))
                     Spacer(Modifier.width(4.dp))
-                    Text("Alle Details & Links", fontSize = 12.sp)
+                    Text(
+                        text = if (appLanguage.isGerman) "Alle Details & Links" else "Details & Links",
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        softWrap = false
+                    )
                 }
 
                 Button(
@@ -1309,9 +1388,15 @@ fun MapPointDescriptionCard(
                     )
                     Spacer(Modifier.width(4.dp))
                     Text(
-                        text = if (isPlanned) "Im Track aktiv" else "+ In Track einbauen",
+                        text = if (isPlanned) {
+                            if (appLanguage.isGerman) "Im Track aktiv" else "Active in Track"
+                        } else {
+                            if (appLanguage.isGerman) "+ In Track einbauen" else "+ Add Stop"
+                        },
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }
