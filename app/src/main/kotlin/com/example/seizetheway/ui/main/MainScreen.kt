@@ -1540,78 +1540,78 @@ private fun ResultsControlHeader(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
+        // Zeile 1: Vollständige Überschrift über die gesamte Breite
+        Text(
+            text = if (state.appLanguage.isGerman) {
+                "$shownCount Entdeckungen ${state.activeResultCategoryTab?.let { "in ${it.localizedLabel(AppLanguage.DE)}" } ?: "entlang des Tracks"}"
+            } else {
+                "$shownCount Discoveries ${state.activeResultCategoryTab?.let { "in ${it.localizedLabel(AppLanguage.EN)}" } ?: "along the track"}"
+            },
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 16.sp,
+            color = Color(0xFF0F172A),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        // Zeile 2: Strecken-Infos wie km, Höhenmeter und Dauer
+        state.route?.let { r ->
+            Text(
+                text = "${String.format("%.1f", r.distanceKm)} km • ↑${r.elevationGainMeters} Hm • ${formatDuration(r.durationMinutes)} (${r.travelMode.localizedLabel(state.appLanguage)})",
+                fontSize = 12.5.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFF006B5E),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        // Zeile 3: Auswahl "Optimaler Mix" und "Selbst wählen"
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(modifier = Modifier.weight(1f)) {
+            FilledTonalButton(
+                onClick = onAutoCurateTrip,
+                colors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = if (state.isOptimalMixActive) Color(0xFFF59E0B) else Color(0xFFFEF3C7),
+                    contentColor = if (state.isOptimalMixActive) Color.White else Color(0xFF92400E)
+                ),
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.height(36.dp)
+            ) {
+                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(15.dp))
+                Spacer(Modifier.width(5.dp))
                 Text(
-                    text = if (state.appLanguage.isGerman) {
-                        "$shownCount Entdeckungen ${state.activeResultCategoryTab?.let { "in ${it.localizedLabel(AppLanguage.DE)}" } ?: "entlang des Tracks"}"
-                    } else {
-                        "$shownCount Discoveries ${state.activeResultCategoryTab?.let { "in ${it.localizedLabel(AppLanguage.EN)}" } ?: "along the track"}"
-                    },
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 16.sp,
-                    color = Color(0xFF0F172A)
+                    text = if (state.appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    softWrap = false
                 )
-                state.route?.let { r ->
-                    Text(
-                        text = "${String.format("%.1f", r.distanceKm)} km • ↑${r.elevationGainMeters} Hm • ${formatDuration(r.durationMinutes)} (${r.travelMode.localizedLabel(state.appLanguage)})",
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF006B5E)
-                    )
-                }
             }
 
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                FilledTonalButton(
-                    onClick = onAutoCurateTrip,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = if (state.isOptimalMixActive) Color(0xFFF59E0B) else Color(0xFFFEF3C7),
-                        contentColor = if (state.isOptimalMixActive) Color.White else Color(0xFF92400E)
+            if (state.isOptimalMixActive || state.plannedStopIds.isNotEmpty()) {
+                OutlinedButton(
+                    onClick = onEnableManualSelection,
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, Color(0xFF006B5E)),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        containerColor = Color.White,
+                        contentColor = Color(0xFF006B5E)
                     ),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(32.dp)
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                    modifier = Modifier.height(36.dp)
                 ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(15.dp))
+                    Spacer(Modifier.width(5.dp))
                     Text(
-                        text = if (state.appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
-                        fontSize = 11.sp,
+                        text = if (state.appLanguage.isGerman) "Selbst wählen" else "Choose yourself",
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         maxLines = 1,
                         softWrap = false
                     )
-                }
-
-                if (state.isOptimalMixActive || state.plannedStopIds.isNotEmpty()) {
-                    OutlinedButton(
-                        onClick = onEnableManualSelection,
-                        shape = RoundedCornerShape(16.dp),
-                        border = BorderStroke(1.dp, Color(0xFF006B5E)),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            containerColor = Color.White,
-                            contentColor = Color(0xFF006B5E)
-                        ),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                        modifier = Modifier.height(32.dp)
-                    ) {
-                        Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(
-                            text = if (state.appLanguage.isGerman) "Selbst wählen" else "Choose yourself",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
                 }
             }
         }

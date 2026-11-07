@@ -32,7 +32,17 @@ Deine Touren und Notizen bleiben lokal auf deinem Gerät gespeichert. Keine Regi
 
 ---
 
-## 2. Upload-Dateien
+## 2. Upload-Dateien & Grafiken
+
+### Grafiken für die Store-Präsenz (Google Play Console)
+- **App-Symbol (512 × 512 px, PNG, max. 1 MB):**  
+  [`play_store_icon_512.png`](file:///c:/Users/tanja/.gemini/antigravity/projects/SeizeTheWay/play_store_icon_512.png) *(ca. 366 KB)*
+- **Vorstellungsgrafik Deutsch (1024 × 500 px, PNG, max. 15 MB):**  
+  [`feature_graphic_de_1024x500.png`](file:///c:/Users/tanja/.gemini/antigravity/projects/SeizeTheWay/feature_graphic_de_1024x500.png) *(ca. 273 KB)*
+- **Vorstellungsgrafik Englisch (1024 × 500 px, PNG, max. 15 MB):**  
+  [`feature_graphic_en_1024x500.png`](file:///c:/Users/tanja/.gemini/antigravity/projects/SeizeTheWay/feature_graphic_en_1024x500.png) *(ca. 272 KB)*
+
+### App-Builds
 - **Production Bundle (AAB):** [`seizetheway.aab`](file:///c:/Users/tanja/.gemini/antigravity/projects/SeizeTheWay/seizetheway.aab) *(signiert mit Release-Keystore, fertig für den Play Store Upload)*
 - **Direkt-Installationsdatei (Release APK):** [`seizetheway-release.apk`](file:///c:/Users/tanja/.gemini/antigravity/projects/SeizeTheWay/seizetheway-release.apk) *(für manuelle Installation / Sideloading)*
 
