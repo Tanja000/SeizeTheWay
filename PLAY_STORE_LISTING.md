@@ -2,6 +2,9 @@
 
 ## 1. Google Play Console – Pflichtangaben
 
+### Paketname (Application ID)
+**`com.seizetheway.app`**
+
 ### App-Titel
 **SeizeTheWay – Route & Entdecken** *(max. 30 Zeichen)*
 

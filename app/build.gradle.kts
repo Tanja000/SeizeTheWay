@@ -8,7 +8,7 @@ android {
   namespace = "com.example.seizetheway"
   compileSdk = 36
   defaultConfig {
-    applicationId = "com.example.seizetheway"
+    applicationId = "com.seizetheway.app"
     minSdk = 24
     targetSdk = 36
     versionCode = 1
