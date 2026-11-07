@@ -15,8 +15,18 @@ android {
     versionName = "1.0"
   }
 
+  signingConfigs {
+    create("release") {
+      storeFile = file("${rootDir}/seizetheway-release.jks")
+      storePassword = "seizethewayplaypass"
+      keyAlias = "seizetheway"
+      keyPassword = "seizethewayplaypass"
+    }
+  }
+
   buildTypes {
     release {
+      signingConfig = signingConfigs.getByName("release")
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
     }
@@ -82,4 +92,7 @@ dependencies {
   implementation(libs.androidx.navigation3.ui)
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
+
+  // Google Mobile Ads (AdMob)
+  implementation("com.google.android.gms:play-services-ads:23.6.0")
 }

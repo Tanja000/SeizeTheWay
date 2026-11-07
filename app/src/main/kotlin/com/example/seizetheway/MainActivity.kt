@@ -9,10 +9,16 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import com.example.seizetheway.ui.theme.SeizeTheWayTheme
+import com.google.android.gms.ads.MobileAds
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
+
+    // Google Mobile Ads (AdMob) Initialisierung
+    try {
+      MobileAds.initialize(this) {}
+    } catch (_: Exception) {}
 
     enableEdgeToEdge()
     setContent {

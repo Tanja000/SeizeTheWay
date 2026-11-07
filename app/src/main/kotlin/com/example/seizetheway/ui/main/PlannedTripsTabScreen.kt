@@ -226,6 +226,11 @@ fun PlannedTripsTabScreen(
             }
         }
 
+        // Google AdMob Banner
+        item {
+            GoogleAdMobBanner(appLanguage = state.appLanguage)
+        }
+
         item {
             Spacer(Modifier.height(28.dp))
         }
@@ -257,8 +262,6 @@ private fun ActiveTourCard(
     onRemoveStop: (String) -> Unit,
     onGoToDiscoveriesTab: () -> Unit
 ) {
-    var showOptimalMixInfo by remember { mutableStateOf(false) }
-
     val stayMinutes = plannedStops.size * 40
     val travelMinutes = route?.durationMinutes ?: 0
     val totalDayMinutes = travelMinutes + stayMinutes
@@ -347,89 +350,6 @@ private fun ActiveTourCard(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                }
-
-                Spacer(Modifier.width(8.dp))
-
-                // Optimaler Mix Button
-                FilledTonalButton(
-                    onClick = onAutoCurate,
-                    colors = ButtonDefaults.filledTonalButtonColors(
-                        containerColor = Color(0xFFFEF3C7),
-                        contentColor = Color(0xFF92400E)
-                    ),
-                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                    modifier = Modifier.height(34.dp)
-                ) {
-                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                    Spacer(Modifier.width(4.dp))
-                    Text(
-                        text = if (appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-
-            // 2. Collapsible Info-Banner for "Optimaler Mix"
-            Surface(
-                color = Color(0xFFFFFBEB),
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, Color(0xFFFDE68A)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { showOptimalMixInfo = !showOptimalMixInfo }
-            ) {
-                Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(
-                            text = if (appLanguage.isGerman) "✨ Was bedeutet »Optimaler Mix«?" else "✨ What is »Optimal Mix«?",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.5.sp,
-                            color = Color(0xFF92400E),
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                        Text(
-                            text = if (showOptimalMixInfo) {
-                                if (appLanguage.isGerman) "Einklappen ▲" else "Collapse ▲"
-                            } else {
-                                if (appLanguage.isGerman) "Erklärung ▼" else "Explain ▼"
-                            },
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFFB45309),
-                            maxLines = 1,
-                            softWrap = false
-                        )
-                    }
-                    AnimatedVisibility(visible = showOptimalMixInfo) {
-                        Text(
-                            text = if (appLanguage.isGerman) {
-                                "Der »Optimale Mix« wählt automatisch bis zu 4 harmonisch verteilte Highlights:\n" +
-                                        "• ~25 %: Natur, Aussichtspunkt oder Wanderung\n" +
-                                        "• ~50 %: Café, Kaffeerösterei oder Restaurant\n" +
-                                        "• ~75 %: Historisches oder kulturelles Highlight\n" +
-                                        "• Plus: 1 passendes Tagesevent entlang der Route"
-                            } else {
-                                "The »Optimal Mix« automatically selects up to 4 well-balanced highlights:\n" +
-                                        "• ~25%: Nature, viewpoint, or hike\n" +
-                                        "• ~50%: Café, roastery, or restaurant\n" +
-                                        "• ~75%: Historic or cultural highlight\n" +
-                                        "• Plus: 1 matching day event along your route"
-                            },
-                            fontSize = 11.sp,
-                            color = Color(0xFF78350F),
-                            lineHeight = 15.sp,
-                            modifier = Modifier.padding(top = 4.dp)
-                        )
-                    }
                 }
             }
 

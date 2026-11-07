@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -17,12 +18,16 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.AltRoute
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.automirrored.filled.DirectionsBike
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
 import androidx.compose.material.icons.automirrored.filled.MenuBook
@@ -32,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -39,9 +45,11 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -83,15 +91,12 @@ fun MainScreen(
     val context = LocalContext.current
     val focusManager = LocalFocusManager.current
     var showSaveTripDialog by remember { mutableStateOf(false) }
-    var showLocationPermissionDialog by remember { mutableStateOf(false) }
+    var showDonationDialog by remember { mutableStateOf(false) }
 
-    // Standorterkennung als Default für den Ausgangspunkt
+    // Standorterkennung als Default für den Ausgangspunkt (Direkter nativer Systemdialog ohne App-Zwischenabfrage)
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { permissions ->
-        val granted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-                permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        showLocationPermissionDialog = false
+    ) { _ ->
         viewModel.detectUserLocation(context)
     }
 
@@ -108,7 +113,12 @@ fun MainScreen(
         if (hasFine || hasCoarse) {
             viewModel.detectUserLocation(context)
         } else {
-            showLocationPermissionDialog = true
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -125,7 +135,12 @@ fun MainScreen(
         if (hasFine || hasCoarse) {
             viewModel.detectUserLocation(context)
         } else {
-            showLocationPermissionDialog = true
+            locationPermissionLauncher.launch(
+                arrayOf(
+                    Manifest.permission.ACCESS_FINE_LOCATION,
+                    Manifest.permission.ACCESS_COARSE_LOCATION
+                )
+            )
         }
     }
 
@@ -137,7 +152,8 @@ fun MainScreen(
                 activeApisCount = state.apiReports.count { it.active },
                 appLanguage = state.appLanguage,
                 onToggleLanguage = viewModel::toggleAppLanguage,
-                onOpenApiDialog = { viewModel.setShowApiDialog(true) }
+                onOpenApiDialog = { viewModel.setShowApiDialog(true) },
+                onOpenDonationDialog = { showDonationDialog = true }
             )
         },
         bottomBar = {
@@ -185,10 +201,6 @@ fun MainScreen(
                                     Badge(containerColor = Color(0xFF006B5E)) {
                                         Text("${state.savedTrips.size}", color = Color.White)
                                     }
-                                } else if (state.plannedStops.isNotEmpty()) {
-                                    Badge(containerColor = Color(0xFFFF8A3D)) {
-                                        Text("${state.plannedStops.size}", color = Color(0xFF081224))
-                                    }
                                 }
                             }
                         ) {
@@ -228,6 +240,7 @@ fun MainScreen(
                             focusManager.clearFocus()
                             viewModel.executeRouteSearch(switchToResultsTab = true)
                         },
+                        onWizardChange = viewModel::setWizard,
                         onJumpToTab = viewModel::selectTab
                     )
                 }
@@ -248,8 +261,8 @@ fun MainScreen(
                         onTogglePlanned = viewModel::togglePlannedStop,
                         onAutoCurateTrip = {
                             viewModel.autoCurateIdealTripStops()
-                            viewModel.selectTab(AppTab.TRIPS)
-                        }
+                        },
+                        onEnableManualSelection = viewModel::enableManualStopSelection
                     )
                 }
 
@@ -313,92 +326,11 @@ fun MainScreen(
         }
     }
 
-    // Location Permission Dialog on Installation / First Launch
-    if (showLocationPermissionDialog) {
-        AlertDialog(
-            onDismissRequest = {
-                showLocationPermissionDialog = false
-                viewModel.detectUserLocation(context)
-            },
-            containerColor = Color.White,
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.MyLocation,
-                        contentDescription = null,
-                        tint = Color(0xFF006B5E),
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        text = if (state.appLanguage.isGerman) "Standort verwenden?" else "Use your location?",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 18.sp,
-                        color = Color(0xFF0F172A)
-                    )
-                }
-            },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(
-                        text = if (state.appLanguage.isGerman) {
-                            "Darf SeizeTheWay deinen aktuellen Standort ermitteln und deinen Ortsnamen automatisch in das Feld »Ausgangspunkt« eintragen?"
-                        } else {
-                            "Allow SeizeTheWay to detect your current location and automatically enter your town name into the 'Origin' field?"
-                        },
-                        fontSize = 14.sp,
-                        color = Color(0xFF1E293B),
-                        lineHeight = 20.sp
-                    )
-                    Text(
-                        text = if (state.appLanguage.isGerman) {
-                            "So können dir sofort passende Auto-, Rad- und Wander-Tracks im Umkreis von 50 km vorgeschlagen werden."
-                        } else {
-                            "This allows us to immediately suggest matching car, bike, and hike tracks within a 50 km radius of your location."
-                        },
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569),
-                        lineHeight = 17.sp
-                    )
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        showLocationPermissionDialog = false
-                        locationPermissionLauncher.launch(
-                            arrayOf(
-                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                Manifest.permission.ACCESS_COARSE_LOCATION
-                            )
-                        )
-                    },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color(0xFF006B5E),
-                        contentColor = Color.White
-                    )
-                ) {
-                    Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (state.appLanguage.isGerman) "Standort freigeben" else "Allow Location",
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = {
-                        showLocationPermissionDialog = false
-                        viewModel.detectUserLocation(context)
-                    }
-                ) {
-                    Text(
-                        text = if (state.appLanguage.isGerman) "Später" else "Not now",
-                        color = Color(0xFF64748B)
-                    )
-                }
-            }
+    // Fancy Donation Dialog
+    if (showDonationDialog) {
+        FancyDonationDialog(
+            appLanguage = state.appLanguage,
+            onDismiss = { showDonationDialog = false }
         )
     }
 
@@ -517,7 +449,8 @@ private fun SeizeTheWayTopBar(
     activeApisCount: Int,
     appLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
-    onOpenApiDialog: () -> Unit
+    onOpenApiDialog: () -> Unit,
+    onOpenDonationDialog: () -> Unit
 ) {
     Surface(
         color = Color(0xFF081224),
@@ -534,70 +467,62 @@ private fun SeizeTheWayTopBar(
                 painter = painterResource(id = R.drawable.app_logo),
                 contentDescription = "SeizeTheWay Logo",
                 modifier = Modifier
-                    .size(40.dp)
+                    .size(38.dp)
                     .clip(RoundedCornerShape(11.dp))
                     .border(1.dp, Color(0xFF2CE5C6).copy(alpha = 0.5f), RoundedCornerShape(11.dp))
             )
             Spacer(Modifier.width(10.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "SeizeTheWay",
-                    color = Color.White,
-                    fontWeight = FontWeight.ExtraBold,
-                    fontSize = 17.sp
-                )
-                Text(
-                    text = if (appLanguage.isGerman) {
-                        "Tracks für Autos, Rad & Wandern"
-                    } else {
-                        "Tracks for Cars, Bike & Hike"
-                    },
-                    color = Color(0xFF94A3B8),
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
+
+            // 3. Brand Title: Schrift kleiner
+            Text(
+                text = "SeizeTheWay",
+                color = Color.White,
+                fontWeight = FontWeight.Bold,
+                fontSize = 15.sp,
+                modifier = Modifier.weight(1f)
+            )
+
+            // 4. Spendensymbol in der Taskleiste: Nur ein Herz
+            Surface(
+                color = Color(0xFF221605),
+                shape = CircleShape,
+                border = BorderStroke(
+                    1.2.dp,
+                    Brush.horizontalGradient(listOf(Color(0xFFFFD15C), Color(0xFFFF8A3D)))
+                ),
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onOpenDonationDialog)
+            ) {
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = if (appLanguage.isGerman) "Spenden" else "Support",
+                        tint = Color(0xFFFFD15C),
+                        modifier = Modifier.size(17.dp)
+                    )
+                }
             }
 
-            // Language Switcher with Flags (German 🇩🇪 | British 🇬🇧)
+            Spacer(Modifier.width(6.dp))
+
+            // Sprachumschalter: Zeigt NUR die Flagge an, die gerade NICHT aktiv ist (Ziel-Sprache)
             Surface(
                 color = Color(0xFF152946),
-                shape = RoundedCornerShape(16.dp),
+                shape = CircleShape,
                 border = BorderStroke(1.dp, Color(0xFF2CE5C6).copy(alpha = 0.45f)),
-                onClick = onToggleLanguage
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .clickable(onClick = onToggleLanguage)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 7.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(3.dp)
-                ) {
-                    Surface(
-                        color = if (appLanguage.isGerman) Color(0xFF2CE5C6).copy(alpha = 0.22f) else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "🇩🇪",
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
+                Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Text(
-                        text = "·",
-                        color = Color(0xFF64748B),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold
+                        text = if (appLanguage.isGerman) "🇬🇧" else "🇩🇪",
+                        fontSize = 17.sp,
+                        textAlign = TextAlign.Center
                     )
-                    Surface(
-                        color = if (!appLanguage.isGerman) Color(0xFF2CE5C6).copy(alpha = 0.22f) else Color.Transparent,
-                        shape = RoundedCornerShape(10.dp)
-                    ) {
-                        Text(
-                            text = "🇬🇧",
-                            fontSize = 15.sp,
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                        )
-                    }
                 }
             }
 
@@ -653,6 +578,7 @@ private fun SearchAndFilterTabContent(
     onToggleKeywordChip: (String) -> Unit,
     onSelectPreset: (RoutePreset) -> Unit,
     onExecuteSearch: () -> Unit,
+    onWizardChange: (Int, Int) -> Unit,
     onJumpToTab: (AppTab) -> Unit
 ) {
     LazyColumn(
@@ -660,33 +586,42 @@ private fun SearchAndFilterTabContent(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        // Main Search & Filter Configuration Card
-        item {
-            RouteSearchAndFilterCard(
-                state = state,
-                onOriginChange = onOriginChange,
-                onConfirmOriginSuggestion = onConfirmOriginSuggestion,
-                onConfirmOriginManual = onConfirmOriginManual,
-                onDestinationChange = onDestinationChange,
-                onConfirmDestinationSuggestion = onConfirmDestinationSuggestion,
-                onConfirmDestinationManual = onConfirmDestinationManual,
-                onDetectLocation = onDetectLocation,
-                onSwapLocations = onSwapLocations,
-                onDetourChange = onDetourChange,
-                onTravelModeChange = onTravelModeChange,
-                onShowAllCategoriesChange = onShowAllCategoriesChange,
-                onToggleCategory = onToggleCategory,
-                onKeywordsChange = onKeywordsChange,
-                onToggleKeywordChip = onToggleKeywordChip,
-                onSelectPreset = onSelectPreset,
-                onExecuteSearch = onExecuteSearch
-            )
-        }
-
+        // Schritt 5: Während der Berechnung wird der Nutzer unterhalten
         if (state.isLoading) {
             item {
-                LoadingProgressBanner(maxDetourKm = state.maxDetourKm, travelMode = state.travelMode)
+                LoadingProgressBanner(state)
             }
+        } else {
+            // Schritte 1–4: Assistent
+            item {
+                RouteSearchAndFilterCard(
+                    state = state,
+                    onOriginChange = onOriginChange,
+                    onConfirmOriginSuggestion = onConfirmOriginSuggestion,
+                    onConfirmOriginManual = onConfirmOriginManual,
+                    onDestinationChange = onDestinationChange,
+                    onConfirmDestinationSuggestion = onConfirmDestinationSuggestion,
+                    onConfirmDestinationManual = onConfirmDestinationManual,
+                    onDetectLocation = onDetectLocation,
+                    onSwapLocations = onSwapLocations,
+                    onDetourChange = onDetourChange,
+                    onTravelModeChange = onTravelModeChange,
+                    onShowAllCategoriesChange = onShowAllCategoriesChange,
+                    onToggleCategory = onToggleCategory,
+                    onKeywordsChange = onKeywordsChange,
+                    onToggleKeywordChip = onToggleKeywordChip,
+                    onSelectPreset = onSelectPreset,
+                    onExecuteSearch = onExecuteSearch,
+                    onWizardChange = onWizardChange
+                )
+            }
+        }
+
+        // Google AdMob Banner
+        item {
+            GoogleAdMobBanner(
+                appLanguage = state.appLanguage
+            )
         }
 
         item {
@@ -705,7 +640,8 @@ private fun DiscoveriesResultsTabContent(
     onCardClick: (RouteDiscoveryItem) -> Unit,
     onShowItemOnMap: (RouteDiscoveryItem) -> Unit,
     onTogglePlanned: (String) -> Unit,
-    onAutoCurateTrip: () -> Unit
+    onAutoCurateTrip: () -> Unit,
+    onEnableManualSelection: () -> Unit
 ) {
     val itemsToShow = state.tabFilteredItems
 
@@ -753,7 +689,7 @@ private fun DiscoveriesResultsTabContent(
                     }
                 }
 
-                WayCategory.entries.forEach { cat ->
+                state.availableCategories.forEach { cat ->
                     val count = state.displayedItems.count {
                         it.category == cat || cat in it.additionalCategories
                     }
@@ -797,11 +733,7 @@ private fun DiscoveriesResultsTabContent(
         ) {
             if (state.isLoading) {
                 item {
-                    LoadingProgressBanner(
-                        maxDetourKm = state.maxDetourKm,
-                        travelMode = state.travelMode,
-                        appLanguage = state.appLanguage
-                    )
+                    LoadingProgressBanner(state, compact = state.displayedItems.isNotEmpty())
                 }
             }
 
@@ -811,7 +743,8 @@ private fun DiscoveriesResultsTabContent(
                     shownCount = itemsToShow.size,
                     onSortOrderChange = onSortOrderChange,
                     onOpenApiDialog = onOpenApiDialog,
-                    onAutoCurateTrip = onAutoCurateTrip
+                    onAutoCurateTrip = onAutoCurateTrip,
+                    onEnableManualSelection = onEnableManualSelection
                 )
             }
 
@@ -840,6 +773,12 @@ private fun DiscoveriesResultsTabContent(
                         onTogglePlanned = { onTogglePlanned(item.id) }
                     )
                 }
+
+                item {
+                    GoogleAdMobBanner(
+                        appLanguage = state.appLanguage
+                    )
+                }
             }
 
             item {
@@ -851,48 +790,57 @@ private fun DiscoveriesResultsTabContent(
 
 @Composable
 private fun LoadingProgressBanner(
-    maxDetourKm: Float,
-    travelMode: TravelMode,
-    appLanguage: AppLanguage = AppLanguage.DE
+    state: SeizeTheWayUiState,
+    compact: Boolean = false
 ) {
-    Card(
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+    SearchLoadingCard(
+        appLanguage = state.appLanguage,
+        travelMode = state.travelMode,
+        maxDetourKm = state.maxDetourKm,
+        stageText = if (state.appLanguage.isGerman) state.loadingStageDe else state.loadingStageEn,
+        fraction = state.loadingFraction,
+        foundCount = state.displayedItems.size,
+        routeKm = state.route?.distanceKm,
+        doneSources = state.loadingDoneSources,
+        totalSources = state.loadingTotalSources,
+        compact = compact
+    )
+}
+
+@Composable
+private fun GuidedStepHeader(
+    stepNumber: Int,
+    title: String,
+    subtitle: String
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(
+            color = Color(0xFF006B5E),
+            shape = CircleShape,
+            modifier = Modifier.size(30.dp)
         ) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(26.dp),
-                strokeWidth = 3.dp,
-                color = Color(0xFF006B5E)
-            )
-            Spacer(Modifier.width(14.dp))
-            Column {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                 Text(
-                    text = if (appLanguage.isGerman) {
-                        "${travelMode.localizedTrackType(AppLanguage.DE)} & Höhenprofil werden berechnet…"
-                    } else {
-                        "Calculating ${travelMode.localizedTrackType(AppLanguage.EN)} & elevation profile…"
-                    },
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    color = Color(0xFF0F172A)
-                )
-                Text(
-                    text = if (appLanguage.isGerman) {
-                        "Abfrage von OSM-Track (${travelMode.localizedLabel(AppLanguage.DE)}), Höhenmetern, Overpass & Wikipedia (±${maxDetourKm.roundToInt()} km)"
-                    } else {
-                        "Querying OSM track (${travelMode.localizedLabel(AppLanguage.EN)}), elevation, Overpass & Wikipedia (±${maxDetourKm.roundToInt()} km)"
-                    },
-                    fontSize = 12.sp,
-                    color = Color(0xFF64748B)
+                    text = "$stepNumber",
+                    color = Color.White,
+                    fontWeight = FontWeight.ExtraBold,
+                    fontSize = 14.sp
                 )
             }
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontWeight = FontWeight.ExtraBold,
+                fontSize = 15.sp,
+                color = Color(0xFF0F172A)
+            )
+            Text(
+                text = subtitle,
+                fontSize = 12.sp,
+                color = Color(0xFF475569)
+            )
         }
     }
 }
@@ -916,8 +864,12 @@ private fun RouteSearchAndFilterCard(
     onKeywordsChange: (String) -> Unit,
     onToggleKeywordChip: (String) -> Unit,
     onSelectPreset: (RoutePreset) -> Unit,
-    onExecuteSearch: () -> Unit
+    onExecuteSearch: () -> Unit,
+    onWizardChange: (Int, Int) -> Unit
 ) {
+    val isDe = state.appLanguage.isGerman
+    val routeChoice = state.wizardRouteChoice // 0 = empfohlene Tracks (≤ 50 km), 1 = Start & Ziel selbst eingeben
+
     val modePresets = getNearbyRecommendedPresets(
         mode = state.travelMode,
         originQuery = state.originQuery,
@@ -926,60 +878,32 @@ private fun RouteSearchAndFilterCard(
         nearbyCorridorItems = state.allCorridorItems
     )
 
-    Card(
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = Color.White),
-        elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-        modifier = Modifier.fillMaxWidth()
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+        // =========================================================================
+        // WIDGET 1: Fortbewegungsart wählen (Auto, Rad, Wandern) + API-Konfiguration
+        // =========================================================================
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Surface(
-                    color = Color(0xFF006B5E).copy(alpha = 0.12f),
-                    shape = RoundedCornerShape(12.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Explore,
-                        contentDescription = null,
-                        tint = Color(0xFF006B5E),
-                        modifier = Modifier
-                            .padding(8.dp)
-                            .size(22.dp)
-                    )
-                }
-                Spacer(Modifier.width(10.dp))
-                Column {
-                    Text(
-                        text = if (state.appLanguage.isGerman) "Track- & Entdecker-Konfigurator" else "Track & Explorer Configurator",
-                        fontWeight = FontWeight.ExtraBold,
-                        fontSize = 17.sp,
-                        color = Color(0xFF0F172A)
-                    )
-                    Text(
-                        text = if (state.appLanguage.isGerman) {
-                            "Fortbewegungsart, Start, Ziel, max. Abweichung & Interessen"
-                        } else {
-                            "Travel mode, origin, destination, max detour & interests"
-                        },
-                        fontSize = 12.sp,
-                        color = Color(0xFF475569)
-                    )
-                }
-            }
-
-            // 1. Travel Mode Selector (Auto, Rad, Wandern) -> selects dedicated track profiles & presets!
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = if (state.appLanguage.isGerman) "Fortbewegungsart wählen:" else "Choose travel mode:",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Color(0xFF0F172A)
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GuidedStepHeader(
+                    stepNumber = 1,
+                    title = if (isDe) "Fortbewegungsart wählen" else "Choose Travel Mode",
+                    subtitle = if (isDe) "Wähle zwischen Auto, Rad und Wandern – wir stellen die passende Routing-API direkt darauf ein"
+                    else "Choose between Car, Bike and Hiking – we pre-configure the matching routing API"
                 )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1004,7 +928,7 @@ private fun RouteSearchAndFilterCard(
                                 .clickable { onTravelModeChange(mode) }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 10.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 11.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1012,7 +936,7 @@ private fun RouteSearchAndFilterCard(
                                     imageVector = icon,
                                     contentDescription = null,
                                     tint = if (selected) Color.White else Color(0xFF334155),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(Modifier.width(6.dp))
                                 Text(
@@ -1027,97 +951,258 @@ private fun RouteSearchAndFilterCard(
                         }
                     }
                 }
-            }
 
-            // 2. Mode-Specific Recommended Tracks Strip strictly within 50 km radius of user location!
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+                // Live-Bestätigung der voreingestellten Routing-API
+                Surface(
+                    color = Color(0xFFE6F6F3),
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF006B5E).copy(alpha = 0.25f))
                 ) {
                     Text(
-                        text = if (state.appLanguage.isGerman) {
-                            "Empfohlene ${state.travelMode.localizedLabel(state.appLanguage)}-Tracks im Umkreis von 50 km:"
-                        } else {
-                            "Recommended ${state.travelMode.localizedLabel(state.appLanguage)} tracks within 50 km:"
+                        text = when (state.travelMode) {
+                            TravelMode.CAR -> if (isDe)
+                                "✓ API eingestellt: OSRM (routed-car) & OpenRouteService – Straßen- & Panorama-Routing inkl. Höhenprofil bereit."
+                            else
+                                "✓ API configured: OSRM (routed-car) & OpenRouteService – road & scenic routing ready."
+                            TravelMode.BIKE -> if (isDe)
+                                "✓ API eingestellt: BRouter OSM (trekking / fastbike) & Radwegenetz – bevorzugt ausgewiesene Radwege & Radrouten."
+                            else
+                                "✓ API configured: BRouter OSM (trekking / fastbike) & cycle network – prefers dedicated cycle paths & routes."
+                            TravelMode.HIKE -> if (isDe)
+                                "✓ API eingestellt: BRouter OSM (hiking-mountain / SAC-Pfade) & Wanderwegenetz – bevorzugt Wanderwege, Pfade & Steige."
+                            else
+                                "✓ API configured: BRouter OSM (hiking-mountain / SAC trails) & hiking network – prefers trails & footpaths."
                         },
                         fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF0F172A)
+                        lineHeight = 17.sp,
+                        color = Color(0xFF006B5E),
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(10.dp)
                     )
-                    Surface(
-                        color = Color(0xFFCCFBF1),
-                        shape = RoundedCornerShape(8.dp)
+                }
+            }
+        }
+
+        // =========================================================================
+        // WIDGET 2: Ausgangspunkt & Reiseziel (hauptsächlich) + empfohlene Tracks (nebensächlich)
+        // =========================================================================
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GuidedStepHeader(
+                    stepNumber = 2,
+                    title = if (isDe) "Strecke wählen" else "Choose Your Route",
+                    subtitle = if (isDe) "Gib deinen Ausgangspunkt (Default: Standort) und dein Reiseziel ein"
+                    else "Enter your origin (default: current location) and destination"
+                )
+
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    LocationAutocompleteField(
+                        label = if (isDe) "Ausgangspunkt (Standort)" else "Origin (Current Location)",
+                        query = state.originQuery,
+                        placeholder = if (isDe) "Ort oder Adresse eingeben…" else "Enter city or address…",
+                        isConfirmed = state.isOriginConfirmed,
+                        suggestions = state.originSuggestions,
+                        leadingIcon = Icons.Default.TripOrigin,
+                        leadingIconTint = Color(0xFFFF7B29),
+                        appLanguage = state.appLanguage,
+                        onQueryChange = onOriginChange,
+                        onSelectSuggestion = onConfirmOriginSuggestion,
+                        onConfirmManual = onConfirmOriginManual,
+                        onDetectGpsLocation = onDetectLocation,
+                        isDetectingLocation = state.isDetectingLocation,
+                        imeAction = ImeAction.Next
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "≤ 50 km",
-                            color = Color(0xFF006B5E),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.ExtraBold,
-                            modifier = Modifier.padding(horizontal = 7.dp, vertical = 2.dp),
-                            maxLines = 1,
-                            softWrap = false
-                        )
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
+                        Surface(
+                            color = Color(0xFFF1F5F9),
+                            shape = RoundedCornerShape(20.dp),
+                            border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
+                            onClick = onSwapLocations,
+                            modifier = Modifier.padding(horizontal = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.SwapVert,
+                                    contentDescription = null,
+                                    tint = Color(0xFF006B5E),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
+                                Text(
+                                    text = if (isDe) "Start & Ziel tauschen" else "Swap Origin & Destination",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF0F172A),
+                                    maxLines = 1,
+                                    softWrap = false
+                                )
+                            }
+                        }
+                        HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
                     }
+
+                    LocationAutocompleteField(
+                        label = if (isDe) "Reiseziel (Zielort / Adresse)" else "Destination (City / Address)",
+                        query = state.destinationQuery,
+                        placeholder = if (isDe) "Zielort eingeben…" else "Enter destination…",
+                        isConfirmed = state.isDestinationConfirmed,
+                        suggestions = state.destinationSuggestions,
+                        leadingIcon = Icons.Default.Place,
+                        leadingIconTint = Color(0xFF006B5E),
+                        appLanguage = state.appLanguage,
+                        onQueryChange = onDestinationChange,
+                        onSelectSuggestion = onConfirmDestinationSuggestion,
+                        onConfirmManual = onConfirmDestinationManual,
+                        imeAction = ImeAction.Done
+                    )
                 }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    modePresets.forEach { preset ->
-                        val isSelected = state.originQuery.equals(preset.originName, ignoreCase = true) &&
-                                state.destinationQuery.equals(preset.destinationName, ignoreCase = true)
-                        Surface(
-                            color = if (isSelected) Color(0xFF006B5E) else Color(0xFFF8FAFC),
-                            shape = RoundedCornerShape(14.dp),
-                            border = BorderStroke(
-                                1.dp,
-                                if (isSelected) Color(0xFF006B5E) else Color(0xFFCBD5E1)
-                            ),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onSelectPreset(preset) }
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                // Dezente, nebensächliche Schnellauswahl für empfohlene Tracks (ohne 50-km-Erwähnung)
+                HorizontalDivider(color = Color(0xFFF1F5F9))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = if (isDe) {
+                            "Empfohlene ${state.travelMode.localizedLabel(state.appLanguage)}-Tracks:"
+                        } else {
+                            "Recommended ${state.travelMode.localizedLabel(state.appLanguage)} tracks:"
+                        },
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFF64748B)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        modePresets.forEach { preset ->
+                            val isSelected = state.originQuery.equals(preset.originName, ignoreCase = true) &&
+                                    state.destinationQuery.equals(preset.destinationName, ignoreCase = true)
+                            Surface(
+                                color = if (isSelected) Color(0xFF006B5E) else Color(0xFFF8FAFC),
+                                shape = RoundedCornerShape(12.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (isSelected) Color(0xFF006B5E) else Color(0xFFE2E8F0)
+                                ),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onSelectPreset(preset) }
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalArrangement = Arrangement.spacedBy(1.dp)
                                 ) {
                                     Text(
                                         text = preset.localizedTitle(state.appLanguage),
                                         color = if (isSelected) Color(0xFF2CE5C6) else Color(0xFF006B5E),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.ExtraBold,
+                                        fontSize = 10.5.sp,
+                                        fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         softWrap = false
                                     )
-                                    Surface(
-                                        color = if (isSelected) Color.White.copy(alpha = 0.18f) else Color(0xFFE2E8F0),
-                                        shape = RoundedCornerShape(6.dp)
-                                    ) {
-                                        Text(
-                                            text = "~${preset.approxDistanceKm} km",
-                                            color = if (isSelected) Color.White else Color(0xFF334155),
-                                            fontSize = 10.sp,
-                                            fontWeight = FontWeight.Bold,
-                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp),
-                                            maxLines = 1,
-                                            softWrap = false
-                                        )
-                                    }
+                                    Text(
+                                        text = "${preset.originName} → ${preset.destinationName}",
+                                        color = if (isSelected) Color.White else Color(0xFF334155),
+                                        fontSize = 11.5.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
                                 }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // =========================================================================
+        // WIDGET 3: Kategorien & Stichworte wählen
+        // =========================================================================
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GuidedStepHeader(
+                    stepNumber = 3,
+                    title = if (isDe) "Kategorien & Stichworte wählen" else "Choose Categories & Keywords",
+                    subtitle = if (isDe) "Bestimme, welche Arten von Orten, Erlebnissen und Stichworten entlang deiner Route gesucht werden"
+                    else "Select which categories, experiences and keywords should be found along your route"
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = if (isDe) "Kategorien:" else "Categories:",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color(0xFF0F172A)
+                        )
+
+                        Surface(
+                            color = if (state.showAllCategories) Color(0xFF006B5E) else Color(0xFFE2E8F0),
+                            shape = RoundedCornerShape(16.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(16.dp))
+                                .clickable { onShowAllCategoriesChange(!state.showAllCategories) }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = if (state.showAllCategories) Icons.Default.DoneAll else Icons.Default.FilterList,
+                                    contentDescription = null,
+                                    tint = if (state.showAllCategories) Color.White else Color(0xFF1E293B),
+                                    modifier = Modifier.size(15.dp)
+                                )
+                                Spacer(Modifier.width(5.dp))
                                 Text(
-                                    text = "${preset.originName} → ${preset.destinationName}",
-                                    color = if (isSelected) Color.White else Color(0xFF0F172A),
-                                    fontSize = 12.sp,
+                                    text = if (state.showAllCategories) {
+                                        if (isDe) "Alles anzeigen (Aktiv)" else "Show All (Active)"
+                                    } else {
+                                        if (isDe) "Alles anzeigen" else "Show All"
+                                    },
+                                    color = if (state.showAllCategories) Color.White else Color(0xFF1E293B),
+                                    fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -1125,168 +1210,141 @@ private fun RouteSearchAndFilterCard(
                             }
                         }
                     }
-                }
-            }
 
-            // 3. Full-width Origin & Destination Inputs (Crystal clear text, full width)
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                LocationAutocompleteField(
-                    label = if (state.appLanguage.isGerman) "Ausgangspunkt (Standort)" else "Origin (Current Location)",
-                    query = state.originQuery,
-                    placeholder = if (state.appLanguage.isGerman) "Ort oder Adresse eingeben…" else "Enter city or address…",
-                    isConfirmed = state.isOriginConfirmed,
-                    suggestions = state.originSuggestions,
-                    leadingIcon = Icons.Default.TripOrigin,
-                    leadingIconTint = Color(0xFFFF7B29),
-                    appLanguage = state.appLanguage,
-                    onQueryChange = onOriginChange,
-                    onSelectSuggestion = onConfirmOriginSuggestion,
-                    onConfirmManual = onConfirmOriginManual,
-                    onDetectGpsLocation = onDetectLocation,
-                    isDetectingLocation = state.isDetectingLocation,
-                    imeAction = ImeAction.Next
-                )
-
-                // Sleek Swap Row between Origin & Destination so both fields have 100% width
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
-                    Surface(
-                        color = Color(0xFFF1F5F9),
-                        shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, Color(0xFFCBD5E1)),
-                        onClick = onSwapLocations,
-                        modifier = Modifier.padding(horizontal = 10.dp)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.SwapVert,
-                                contentDescription = null,
-                                tint = Color(0xFF006B5E),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                text = if (state.appLanguage.isGerman) "Start & Ziel tauschen" else "Swap Origin & Destination",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF0F172A),
-                                maxLines = 1,
-                                softWrap = false
-                            )
+                        state.availableCategories.forEach { cat ->
+                            val isSelected = state.showAllCategories || cat in state.selectedCategories
+                            val countInCorridor = state.allCorridorItems.count { item ->
+                                item.detourDistanceKm <= state.maxDetourKm + 0.05 &&
+                                        (item.category == cat || cat in item.additionalCategories)
+                            }
+                            Surface(
+                                color = if (isSelected) cat.color.copy(alpha = 0.15f) else Color(0xFFF1F5F9),
+                                shape = RoundedCornerShape(14.dp),
+                                border = BorderStroke(
+                                    width = if (isSelected) 1.5.dp else 1.dp,
+                                    color = if (isSelected) cat.color else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .clickable { onToggleCategory(cat) }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = categoryIcon(cat),
+                                        contentDescription = null,
+                                        tint = if (isSelected) cat.color else Color(0xFF64748B),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(Modifier.width(6.dp))
+                                    Text(
+                                        text = cat.localizedLabel(state.appLanguage),
+                                        fontSize = 12.sp,
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (isSelected) Color(0xFF0F172A) else Color(0xFF475569),
+                                        maxLines = 1,
+                                        softWrap = false
+                                    )
+                                    if (countInCorridor > 0) {
+                                        Spacer(Modifier.width(5.dp))
+                                        Text(
+                                            text = "($countInCorridor)",
+                                            fontSize = 11.sp,
+                                            color = if (isSelected) cat.color else Color(0xFF94A3B8),
+                                            fontWeight = FontWeight.Bold,
+                                            maxLines = 1,
+                                            softWrap = false
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
-                    HorizontalDivider(modifier = Modifier.weight(1f), color = Color(0xFFE2E8F0))
                 }
 
-                LocationAutocompleteField(
-                    label = if (state.appLanguage.isGerman) "Reiseziel (Zielort / Adresse)" else "Destination (City / Address)",
-                    query = state.destinationQuery,
-                    placeholder = if (state.appLanguage.isGerman) "Zielort eingeben…" else "Enter destination…",
-                    isConfirmed = state.isDestinationConfirmed,
-                    suggestions = state.destinationSuggestions,
-                    leadingIcon = Icons.Default.Place,
-                    leadingIconTint = Color(0xFF006B5E),
-                    appLanguage = state.appLanguage,
-                    onQueryChange = onDestinationChange,
-                    onSelectSuggestion = onConfirmDestinationSuggestion,
-                    onConfirmManual = onConfirmDestinationManual,
-                    imeAction = ImeAction.Search,
-                    onImeAction = onExecuteSearch
-                )
-            }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (isDe) "Stichworte & Interessen (optional):" else "Keywords & Interests (optional):",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = Color(0xFF0F172A)
+                    )
+                    OutlinedTextField(
+                        value = state.keywordsQuery,
+                        onValueChange = onKeywordsChange,
+                        placeholder = {
+                            Text(
+                                text = if (isDe) "z. B. Wasserfall, Burg, Aussicht, Kaffee, Kostenlos…" else "e.g. Waterfall, Castle, Viewpoint, Coffee, Free…",
+                                fontSize = 13.sp,
+                                color = Color(0xFF64748B)
+                            )
+                        },
+                        textStyle = androidx.compose.ui.text.TextStyle(
+                            color = Color(0xFF0F172A),
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        colors = seizeInputFieldColors(),
+                        leadingIcon = {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = null,
+                                tint = Color(0xFF006B5E)
+                            )
+                        },
+                        trailingIcon = {
+                            if (state.keywordsQuery.isNotBlank()) {
+                                IconButton(onClick = { onKeywordsChange("") }) {
+                                    Icon(
+                                        imageVector = Icons.Default.Clear,
+                                        contentDescription = if (isDe) "Stichworte löschen" else "Clear keywords",
+                                        tint = Color(0xFF475569)
+                                    )
+                                }
+                            }
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-            // Maximum Detour Distance Slider & Quick Buttons
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(Color(0xFFF8FAFC))
-                    .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
-                    .padding(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.AltRoute,
-                            contentDescription = null,
-                            tint = Color(0xFF006B5E),
-                            modifier = Modifier.size(18.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = if (state.appLanguage.isGerman) "Max. Abweichung vom Track" else "Max. Track Detour",
-                            fontWeight = FontWeight.SemiBold,
-                            fontSize = 13.sp,
-                            color = Color(0xFF0F172A)
-                        )
-                    }
-                    Surface(
-                        color = Color(0xFF006B5E),
-                        shape = RoundedCornerShape(10.dp)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "max. ${state.maxDetourKm.roundToInt()} km",
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 12.sp,
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                            text = if (isDe) "Beliebte Stichworte:" else "Popular keywords:",
+                            fontSize = 11.sp,
+                            color = Color(0xFF64748B),
                             maxLines = 1,
                             softWrap = false
                         )
-                    }
-                }
-
-                Slider(
-                    value = state.maxDetourKm,
-                    onValueChange = onDetourChange,
-                    valueRange = 1f..50f,
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color(0xFF006B5E),
-                        activeTrackColor = Color(0xFF006B5E)
-                    )
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    listOf(1f, 3f, 5f, 10f, 25f, 50f).forEach { kmPreset ->
-                        val active = state.maxDetourKm.roundToInt() == kmPreset.roundToInt()
-                        Surface(
-                            color = if (active) Color(0xFF006B5E).copy(alpha = 0.14f) else Color.White,
-                            shape = RoundedCornerShape(10.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.dp,
-                                if (active) Color(0xFF006B5E) else Color(0xFFCBD5E1)
-                            ),
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(10.dp))
-                                .clickable { onDetourChange(kmPreset) }
-                        ) {
-                            Box(
-                                contentAlignment = Alignment.Center,
-                                modifier = Modifier.padding(vertical = 5.dp)
+                        SUGGESTED_KEYWORDS.forEach { kw ->
+                            val active = state.keywordsQuery.lowercase().contains(kw.lowercase())
+                            Surface(
+                                color = if (active) Color(0xFF0F2942) else Color(0xFFF1F5F9),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { onToggleKeywordChip(kw) }
                             ) {
                                 Text(
-                                    text = "${kmPreset.roundToInt()} km",
+                                    text = "#$kw",
+                                    color = if (active) Color(0xFF2CE5C6) else Color(0xFF475569),
                                     fontSize = 11.sp,
                                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (active) Color(0xFF006B5E) else Color(0xFF475569),
+                                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                                     maxLines = 1,
                                     softWrap = false
                                 )
@@ -1295,103 +1353,111 @@ private fun RouteSearchAndFilterCard(
                     }
                 }
             }
+        }
 
-            // Categories Section ("Alles anzeigen" + Individual Categories)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
+        // =========================================================================
+        // WIDGET 4: Maximale Abweichung wählen + Erklärung + Berechnen-Button
+        // =========================================================================
+        Card(
+            shape = RoundedCornerShape(20.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 3.dp),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                GuidedStepHeader(
+                    stepNumber = 4,
+                    title = if (isDe) "Maximale Abweichung & Berechnung" else "Maximum Detour & Calculation",
+                    subtitle = if (isDe) "Lege fest, wie weit Orte maximal von deiner Route abweichen dürfen, und starte die Suche"
+                    else "Set how far places may deviate from your route and start the calculation"
+                )
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xFFF8FAFC))
+                        .border(1.dp, Color(0xFFE2E8F0), RoundedCornerShape(16.dp))
+                        .padding(12.dp)
                 ) {
-                    Text(
-                        text = if (state.appLanguage.isGerman) "Kategorien wählen" else "Select Categories",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 14.sp,
-                        color = Color(0xFF0F172A)
-                    )
-
-                    Surface(
-                        color = if (state.showAllCategories) Color(0xFF006B5E) else Color(0xFFE2E8F0),
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(16.dp))
-                            .clickable { onShowAllCategoriesChange(!state.showAllCategories) }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = if (state.showAllCategories) Icons.Default.DoneAll else Icons.Default.FilterList,
+                                imageVector = Icons.AutoMirrored.Filled.AltRoute,
                                 contentDescription = null,
-                                tint = if (state.showAllCategories) Color.White else Color(0xFF1E293B),
-                                modifier = Modifier.size(15.dp)
+                                tint = Color(0xFF006B5E),
+                                modifier = Modifier.size(18.dp)
                             )
-                            Spacer(Modifier.width(5.dp))
+                            Spacer(Modifier.width(6.dp))
                             Text(
-                                text = if (state.showAllCategories) {
-                                    if (state.appLanguage.isGerman) "Alles anzeigen (Aktiv)" else "Show All (Active)"
-                                } else {
-                                    if (state.appLanguage.isGerman) "Alles anzeigen" else "Show All"
-                                },
-                                color = if (state.showAllCategories) Color.White else Color(0xFF1E293B),
-                                fontSize = 11.sp,
+                                text = if (isDe) "Max. Abweichung vom Track" else "Max. Track Detour",
+                                fontWeight = FontWeight.SemiBold,
+                                fontSize = 13.sp,
+                                color = Color(0xFF0F172A)
+                            )
+                        }
+                        Surface(
+                            color = Color(0xFF006B5E),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text(
+                                text = "max. ${state.maxDetourKm.roundToInt()} km",
+                                color = Color.White,
                                 fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 maxLines = 1,
                                 softWrap = false
                             )
                         }
                     }
-                }
 
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    WayCategory.entries.forEach { cat ->
-                        val isSelected = state.showAllCategories || cat in state.selectedCategories
-                        val countInCorridor = state.allCorridorItems.count { item ->
-                            item.detourDistanceKm <= state.maxDetourKm + 0.05 &&
-                                    (item.category == cat || cat in item.additionalCategories)
-                        }
-                        Surface(
-                            color = if (isSelected) cat.color.copy(alpha = 0.15f) else Color(0xFFF1F5F9),
-                            shape = RoundedCornerShape(14.dp),
-                            border = androidx.compose.foundation.BorderStroke(
-                                width = if (isSelected) 1.5.dp else 1.dp,
-                                color = if (isSelected) cat.color else Color(0xFFCBD5E1)
-                            ),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(14.dp))
-                                .clickable { onToggleCategory(cat) }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                    Slider(
+                        value = state.maxDetourKm,
+                        onValueChange = onDetourChange,
+                        valueRange = 1f..50f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF006B5E),
+                            activeTrackColor = Color(0xFF006B5E)
+                        )
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf(1f, 3f, 5f, 10f, 25f, 50f).forEach { kmPreset ->
+                            val active = state.maxDetourKm.roundToInt() == kmPreset.roundToInt()
+                            Surface(
+                                color = if (active) Color(0xFF006B5E).copy(alpha = 0.14f) else Color.White,
+                                shape = RoundedCornerShape(10.dp),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (active) Color(0xFF006B5E) else Color(0xFFCBD5E1)
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .clickable { onDetourChange(kmPreset) }
                             ) {
-                                Icon(
-                                    imageVector = categoryIcon(cat),
-                                    contentDescription = null,
-                                    tint = if (isSelected) cat.color else Color(0xFF64748B),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    text = cat.localizedLabel(state.appLanguage),
-                                    fontSize = 12.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isSelected) Color(0xFF0F172A) else Color(0xFF475569),
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                                if (countInCorridor > 0) {
-                                    Spacer(Modifier.width(5.dp))
+                                Box(
+                                    contentAlignment = Alignment.Center,
+                                    modifier = Modifier.padding(vertical = 5.dp)
+                                ) {
                                     Text(
-                                        text = "($countInCorridor)",
+                                        text = "${kmPreset.roundToInt()} km",
                                         fontSize = 11.sp,
-                                        color = if (isSelected) cat.color else Color(0xFF94A3B8),
-                                        fontWeight = FontWeight.Bold,
+                                        fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                                        color = if (active) Color(0xFF006B5E) else Color(0xFF475569),
                                         maxLines = 1,
                                         softWrap = false
                                     )
@@ -1400,119 +1466,60 @@ private fun RouteSearchAndFilterCard(
                         }
                     }
                 }
-            }
 
-            // Keywords / Stichworte Input + Quick Suggestion Chips
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = if (state.appLanguage.isGerman) "Stichworte & Interessen (optional):" else "Keywords & Interests (optional):",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 13.sp,
-                    color = Color(0xFF0F172A)
-                )
-                OutlinedTextField(
-                    value = state.keywordsQuery,
-                    onValueChange = onKeywordsChange,
-                    placeholder = {
-                        Text(
-                            text = if (state.appLanguage.isGerman) "z. B. Wasserfall, Burg, Aussicht, Kaffee, Kostenlos…" else "e.g. Waterfall, Castle, Viewpoint, Coffee, Free…",
-                            fontSize = 13.sp,
-                            color = Color(0xFF64748B)
-                        )
-                    },
-                    textStyle = androidx.compose.ui.text.TextStyle(
-                        color = Color(0xFF0F172A),
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    colors = seizeInputFieldColors(),
-                    leadingIcon = {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = null,
-                            tint = Color(0xFF006B5E)
-                        )
-                    },
-                    trailingIcon = {
-                        if (state.keywordsQuery.isNotBlank()) {
-                            IconButton(onClick = { onKeywordsChange("") }) {
-                                Icon(
-                                    imageVector = Icons.Default.Clear,
-                                    contentDescription = if (state.appLanguage.isGerman) "Stichworte löschen" else "Clear keywords",
-                                    tint = Color(0xFF475569)
-                                )
-                            }
-                        }
-                    },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onExecuteSearch() }),
+                // Erklärung zur Korridor-Berechnung
+                Surface(
+                    color = Color(0xFFFFF7ED),
                     shape = RoundedCornerShape(14.dp),
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    border = BorderStroke(1.dp, Color(0xFFFED7AA))
                 ) {
                     Text(
-                        text = if (state.appLanguage.isGerman) "Beliebte Stichworte:" else "Popular keywords:",
-                        fontSize = 11.sp,
-                        color = Color(0xFF64748B),
+                        text = if (isDe) {
+                            "ℹ️ Im nächsten Schritt werden alle Orte ermittelt, die maximal ${state.maxDetourKm.roundToInt()} km von deiner Route abweichen (aus OpenStreetMap, Wikipedia und Event-Portalen). Je nach gewählter Abweichung und Streckenlänge ist diese Berechnung aufwendig und kann einen Moment dauern. Das erste Ergebnis wird dir sofort präsentiert – alle weiteren Treffer werden kontinuierlich nachgeladen!"
+                        } else {
+                            "ℹ️ In the next step, all places within a ${state.maxDetourKm.roundToInt()} km detour of your route will be found (using OpenStreetMap, Wikipedia and event portals). Depending on your chosen detour and route length, this calculation can take a moment. The first result is shown immediately – all further hits are loaded continuously!"
+                        },
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = Color(0xFF7C2D12),
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+
+                // Berechnen-Button ("Wandern berechnen", "Rad berechnen", "Route berechnen")
+                Button(
+                    onClick = onExecuteSearch,
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFF006B5E),
+                        contentColor = Color.White
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
+                ) {
+                    Icon(Icons.Default.TravelExplore, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (isDe) {
+                            when (state.travelMode) {
+                                TravelMode.CAR -> "Route berechnen"
+                                TravelMode.BIKE -> "Rad berechnen"
+                                TravelMode.HIKE -> "Wandern berechnen"
+                            }
+                        } else {
+                            when (state.travelMode) {
+                                TravelMode.CAR -> "Calculate Route"
+                                TravelMode.BIKE -> "Calculate Bike Route"
+                                TravelMode.HIKE -> "Calculate Hiking Route"
+                            }
+                        },
+                        fontWeight = FontWeight.ExtraBold,
+                        fontSize = 15.sp,
                         maxLines = 1,
                         softWrap = false
                     )
-                    SUGGESTED_KEYWORDS.forEach { kw ->
-                        val active = state.keywordsQuery.lowercase().contains(kw.lowercase())
-                        Surface(
-                            color = if (active) Color(0xFF0F2942) else Color(0xFFF1F5F9),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onToggleKeywordChip(kw) }
-                        ) {
-                            Text(
-                                text = "#$kw",
-                                color = if (active) Color(0xFF2CE5C6) else Color(0xFF475569),
-                                fontSize = 11.sp,
-                                fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                                modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
-                                maxLines = 1,
-                                softWrap = false
-                            )
-                        }
-                    }
                 }
-            }
-
-            // Primary Action Button
-            Button(
-                onClick = onExecuteSearch,
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFF006B5E),
-                    contentColor = Color.White
-                ),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(48.dp)
-            ) {
-                Icon(Icons.Default.TravelExplore, contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = if (state.appLanguage.isGerman) {
-                        "${state.travelMode.localizedLabel(state.appLanguage)}-Track berechnen"
-                    } else {
-                        "Calculate ${state.travelMode.localizedLabel(state.appLanguage)} Track"
-                    },
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp,
-                    maxLines = 1,
-                    softWrap = false
-                )
             }
         }
     }
@@ -1524,8 +1531,11 @@ private fun ResultsControlHeader(
     shownCount: Int,
     onSortOrderChange: (DiscoverySortOrder) -> Unit,
     onOpenApiDialog: () -> Unit,
-    onAutoCurateTrip: () -> Unit
+    onAutoCurateTrip: () -> Unit,
+    onEnableManualSelection: () -> Unit
 ) {
+    var showOptimalMixInfo by remember { mutableStateOf(false) }
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -1556,24 +1566,115 @@ private fun ResultsControlHeader(
                 }
             }
 
-            FilledTonalButton(
-                onClick = onAutoCurateTrip,
-                colors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = Color(0xFFFEF3C7),
-                    contentColor = Color(0xFF92400E)
-                ),
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.height(32.dp)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
-                Spacer(Modifier.width(4.dp))
-                Text(
-                    text = if (state.appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+                FilledTonalButton(
+                    onClick = onAutoCurateTrip,
+                    colors = ButtonDefaults.filledTonalButtonColors(
+                        containerColor = if (state.isOptimalMixActive) Color(0xFFF59E0B) else Color(0xFFFEF3C7),
+                        contentColor = if (state.isOptimalMixActive) Color.White else Color(0xFF92400E)
+                    ),
+                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                    modifier = Modifier.height(32.dp)
+                ) {
+                    Icon(Icons.Default.AutoAwesome, contentDescription = null, modifier = Modifier.size(14.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        text = if (state.appLanguage.isGerman) "Optimaler Mix" else "Optimal Mix",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+
+                if (state.isOptimalMixActive || state.plannedStopIds.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = onEnableManualSelection,
+                        shape = RoundedCornerShape(16.dp),
+                        border = BorderStroke(1.dp, Color(0xFF006B5E)),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            containerColor = Color.White,
+                            contentColor = Color(0xFF006B5E)
+                        ),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                        modifier = Modifier.height(32.dp)
+                    ) {
+                        Icon(Icons.Default.TouchApp, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (state.appLanguage.isGerman) "Selbst wählen" else "Choose yourself",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            maxLines = 1,
+                            softWrap = false
+                        )
+                    }
+                }
+            }
+        }
+
+        // Erklärung, was »Optimaler Mix« bedeutet (direkt im Tab Ergebnisse)
+        Surface(
+            color = Color(0xFFFFFBEB),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, Color(0xFFFDE68A)),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { showOptimalMixInfo = !showOptimalMixInfo }
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (state.appLanguage.isGerman) "✨ Was bedeutet »Optimaler Mix«?" else "✨ What is »Optimal Mix«?",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 11.5.sp,
+                        color = Color(0xFF92400E),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                    Text(
+                        text = if (showOptimalMixInfo) {
+                            if (state.appLanguage.isGerman) "Einklappen ▲" else "Collapse ▲"
+                        } else {
+                            if (state.appLanguage.isGerman) "Erklärung ▼" else "Explain ▼"
+                        },
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Color(0xFFB45309),
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
+                if (showOptimalMixInfo) {
+                    Text(
+                        text = if (state.appLanguage.isGerman) {
+                            "Der »Optimale Mix« wählt automatisch bis zu 4 harmonisch entlang deiner Strecke verteilte Highlights für deinen Track aus:\n" +
+                                    "• ~25 % der Strecke: Natur oder Aussichtspunkt\n" +
+                                    "• ~50 % der Strecke: Café, Kaffeerösterei oder Restaurant\n" +
+                                    "• ~75 % der Strecke: Historisches oder kulturelles Highlight\n" +
+                                    "• Plus: 1 passendes Tagesevent entlang der Route\n" +
+                                    "💡 Über »Selbst wählen« (oder die Buttons »+ In den Track« bei jedem Ort) kannst du jederzeit wieder deine eigenen Orte zusammenstellen."
+                        } else {
+                            "The »Optimal Mix« automatically selects up to 4 well-balanced highlights along your route for your track:\n" +
+                                    "• ~25% of route: Nature or viewpoint\n" +
+                                    "• ~50% of route: Café, roastery, or restaurant\n" +
+                                    "• ~75% of route: Historic or cultural highlight\n" +
+                                    "• Plus: 1 matching day event along your route\n" +
+                                    "💡 Tap »Choose yourself« (or »+ Add to Track« on any card) to pick your own stops at any time."
+                        },
+                        fontSize = 11.sp,
+                        color = Color(0xFF78350F),
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
             }
         }
 
@@ -2841,6 +2942,248 @@ private fun LocationAutocompleteField(
                             HorizontalDivider(color = Color(0xFFF1F5F9))
                         }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FancyDonationDialog(
+    appLanguage: AppLanguage,
+    onDismiss: () -> Unit
+) {
+    val isDe = appLanguage.isGerman
+    val context = LocalContext.current
+    var selectedTierIndex by remember { mutableIntStateOf(0) }
+    var customAmountInput by remember { mutableStateOf("") }
+
+    val formattedCustomAmount = remember(customAmountInput) {
+        val cleaned = customAmountInput.trim().replace("€", "").trim()
+        if (cleaned.isEmpty()) "0,00 €" else "$cleaned €"
+    }
+
+    val tiers = remember(isDe, formattedCustomAmount) {
+        listOf(
+            Triple("☕", if (isDe) "Kaffee spendieren" else "Coffee boost", "2,50 €"),
+            Triple("🍕", if (isDe) "Wegzehrung" else "Trail snack", "5,00 €"),
+            Triple("💛", if (isDe) "Beliebiger Betrag" else "Custom amount", if (customAmountInput.isBlank()) (if (isDe) "Frei wählbar" else "Any amount") else formattedCustomAmount)
+        )
+    }
+
+    val effectiveAmountText = if (selectedTierIndex == 2) {
+        val cleaned = customAmountInput.trim().replace("€", "").trim()
+        if (cleaned.isEmpty()) (if (isDe) "Wunschbetrag" else "custom amount") else "$cleaned €"
+    } else {
+        tiers[selectedTierIndex].third
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = Color.White),
+            elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(22.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Fancy golden heart badge
+                Box(
+                    modifier = Modifier
+                        .size(64.dp)
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(Color(0xFFFFB74D), Color(0xFFFF9800), Color(0xFFFF6F00))
+                            ),
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Favorite,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(34.dp)
+                    )
+                }
+
+                Spacer(Modifier.height(14.dp))
+
+                Text(
+                    text = if (isDe) "Unterstütze SeizeTheWay 💛" else "Support SeizeTheWay 💛",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    color = Color(0xFF0F172A),
+                    textAlign = TextAlign.Center
+                )
+
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    text = if (isDe)
+                        "SeizeTheWay ist unabhängig! Deine freiwillige Spende hilft uns, Serverkosten für Routenberechnung und weltweite Geodaten zu decken."
+                    else
+                        "SeizeTheWay is independent! Your voluntary donation helps us cover server costs for route calculations and worldwide geodata.",
+                    fontSize = 13.sp,
+                    color = Color(0xFF475569),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 18.sp
+                )
+
+                Spacer(Modifier.height(18.dp))
+
+                // Tier selection buttons (Kaffee, Wegzehrung, Beliebiger Betrag)
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    tiers.forEachIndexed { index, (emoji, title, price) ->
+                        val isSelected = selectedTierIndex == index
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) Color(0xFFFFF7ED) else Color(0xFFF8FAFC),
+                            border = BorderStroke(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) Color(0xFFFF8A3D) else Color(0xFFE2E8F0)
+                            ),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { selectedTierIndex = index }
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(emoji, fontSize = 20.sp)
+                                Spacer(Modifier.width(12.dp))
+                                Text(
+                                    text = title,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF1E293B),
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(8.dp),
+                                    color = if (isSelected) Color(0xFFFF8A3D) else Color(0xFFE2E8F0)
+                                ) {
+                                    Text(
+                                        text = price,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.White else Color(0xFF334155),
+                                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Direct custom amount input field so any arbitrary amount can be entered immediately
+                    OutlinedTextField(
+                        value = customAmountInput,
+                        onValueChange = { raw ->
+                            val filtered = raw.filter { it.isDigit() || it == ',' || it == '.' }
+                            customAmountInput = filtered
+                            selectedTierIndex = 2
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onFocusChanged { focusState ->
+                                if (focusState.isFocused) selectedTierIndex = 2
+                            },
+                        singleLine = true,
+                        shape = RoundedCornerShape(14.dp),
+                        label = {
+                            Text(
+                                if (isDe) "Beliebigen Betrag eingeben (in €)" else "Enter any custom amount (in €)",
+                                fontSize = 12.sp
+                            )
+                        },
+                        placeholder = {
+                            Text(if (isDe) "z. B. 7,50 oder 15,00" else "e.g. 7.50 or 15.00", fontSize = 13.sp)
+                        },
+                        trailingIcon = {
+                            Text(
+                                text = "€",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = Color(0xFFFF8A3D),
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        },
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = Color(0xFF0F172A),
+                            unfocusedTextColor = Color(0xFF0F172A),
+                            focusedContainerColor = Color(0xFFFFF7ED),
+                            unfocusedContainerColor = Color(0xFFF8FAFC),
+                            focusedBorderColor = Color(0xFFFF8A3D),
+                            unfocusedBorderColor = Color(0xFFCBD5E1),
+                            focusedLabelColor = Color(0xFFE65100),
+                            unfocusedLabelColor = Color(0xFF475569)
+                        )
+                    )
+                }
+
+                Spacer(Modifier.height(18.dp))
+
+                // Action button
+                Button(
+                    onClick = {
+                        if (selectedTierIndex == 2 && customAmountInput.trim().isEmpty()) {
+                            Toast.makeText(
+                                context,
+                                if (isDe) "Bitte gib deinen gewünschten Spendenbetrag in € ein."
+                                else "Please enter your desired donation amount in €.",
+                                Toast.LENGTH_SHORT
+                            ).show()
+                            return@Button
+                        }
+                        Toast.makeText(
+                            context,
+                            if (isDe) "Vielen Dank für deine Spende von $effectiveAmountText! 💛"
+                            else "Thank you so much for your donation of $effectiveAmountText! 💛",
+                            Toast.LENGTH_LONG
+                        ).show()
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFFF8A3D),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Icon(Icons.Default.Favorite, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = if (isDe) "$effectiveAmountText spenden" else "Donate $effectiveAmountText",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+
+                Spacer(Modifier.height(6.dp))
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (isDe) "Schließen" else "Close",
+                        color = Color(0xFF64748B),
+                        fontSize = 13.sp
+                    )
                 }
             }
         }

@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.seizetheway.data.RouteDiscoveryService
+import com.example.seizetheway.data.SavedTripsStorage
 import com.example.seizetheway.model.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -24,7 +25,7 @@ enum class DiscoverySortOrder(val labelDe: String, val labelEn: String) {
 data class SeizeTheWayUiState(
     val activeTab: AppTab = AppTab.SEARCH,
     val activeResultCategoryTab: WayCategory? = null,
-    val mapDisplayFilter: MapDisplayFilter = MapDisplayFilter.ALL,
+    val mapDisplayFilter: MapDisplayFilter = MapDisplayFilter.IN_TRACK,
     val originQuery: String = "Standort wird ermittelt…",
     val destinationQuery: String = "Starnberg",
     val userLocationPoint: GeoPoint? = null,
@@ -41,12 +42,20 @@ data class SeizeTheWayUiState(
     val strictKeywordFilter: Boolean = true,
     val sortOrder: DiscoverySortOrder = DiscoverySortOrder.ROUTE_PROGRESS,
     val isLoading: Boolean = false,
+    val wizardStep: Int = 1,
+    val wizardRouteChoice: Int = 0,
+    val loadingStageDe: String? = null,
+    val loadingStageEn: String? = null,
+    val loadingFraction: Float = 0f,
+    val loadingDoneSources: Int = 0,
+    val loadingTotalSources: Int = 7,
     val isRecalculatingTrack: Boolean = false,
     val errorMessage: String? = null,
     val route: RouteResult? = null,
     val allCorridorItems: List<RouteDiscoveryItem> = emptyList(),
     val displayedItems: List<RouteDiscoveryItem> = emptyList(),
     val plannedStopIds: Set<String> = emptySet(),
+    val isOptimalMixActive: Boolean = false,
     val savedTrips: List<SavedTrip> = emptyList(),
     val tripNotesDraft: String = "",
     val selectedDetailItem: RouteDiscoveryItem? = null,
@@ -56,6 +65,13 @@ data class SeizeTheWayUiState(
     val apiReports: List<ApiStatusReport> = emptyList(),
     val showApiDialog: Boolean = false
 ) {
+    val availableCategories: List<WayCategory>
+        get() = if (travelMode == TravelMode.CAR) {
+            WayCategory.entries
+        } else {
+            WayCategory.entries.filter { it != WayCategory.WANDERUNGEN }
+        }
+
     val isCurrentTourAlreadySaved: Boolean
         get() {
             val r = route ?: return false
@@ -112,7 +128,15 @@ class SeizeTheWayViewModel(
     private var keywordFetchJob: Job? = null
 
     init {
-        executeRouteSearch(switchToResultsTab = false)
+        val persisted = SavedTripsStorage.loadSavedTrips()
+        if (persisted.isNotEmpty()) {
+            _uiState.update { it.copy(savedTrips = persisted) }
+        }
+        // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
+    }
+
+    fun setWizard(step: Int, routeChoice: Int) {
+        _uiState.update { it.copy(wizardStep = step.coerceIn(1, 4), wizardRouteChoice = routeChoice) }
     }
 
     fun selectTab(tab: AppTab) {
@@ -221,7 +245,7 @@ class SeizeTheWayViewModel(
                             isDetectingLocation = false
                         )
                     }
-                    executeRouteSearch(switchToResultsTab = false)
+                    // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
                 } else {
                     // Fallback: IP-Geolocation if GPS hardware is disabled or permission was denied
                     val ipLoc = service.fetchIpLocation()
@@ -249,7 +273,7 @@ class SeizeTheWayViewModel(
                                 isDetectingLocation = false
                             )
                         }
-                        executeRouteSearch(switchToResultsTab = false)
+                        // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
                     } else {
                         _uiState.update {
                             it.copy(
@@ -488,7 +512,7 @@ class SeizeTheWayViewModel(
                 errorMessage = null
             )
         }
-        executeRouteSearch(switchToResultsTab = false)
+        // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
     }
 
     fun updateMaxDetourKm(km: Float) {
@@ -509,21 +533,54 @@ class SeizeTheWayViewModel(
             nearbyCorridorItems = current.allCorridorItems
         ).firstOrNull() ?: presetsForTravelMode(mode).first()
 
+        val modeApiReport = ApiStatusReport(
+            source = ApiSource.OSRM,
+            active = true,
+            resultsCount = 0,
+            statusMessage = when (mode) {
+                TravelMode.CAR -> "Auto-Routing bereit: OSRM (routed-car) & OpenRouteService (driving-car)"
+                TravelMode.BIKE -> "Rad-Routing bereit: BRouter OSM (trekking / fastbike) & Radwegenetz"
+                TravelMode.HIKE -> "Wander-Routing bereit: BRouter OSM (hiking-mountain) & Wanderwegenetz"
+            },
+            latencyMs = 1L
+        )
+
         _uiState.update { state ->
-            state.copy(
+            val updatedReports = listOf(modeApiReport) + state.apiReports.filterNot { it.source == ApiSource.OSRM }
+            val allowedCats = if (mode == TravelMode.CAR) {
+                WayCategory.entries.toSet()
+            } else {
+                WayCategory.entries.filter { it != WayCategory.WANDERUNGEN }.toSet()
+            }
+            val nextSelected = if (state.showAllCategories) {
+                allowedCats
+            } else {
+                state.selectedCategories.intersect(allowedCats).ifEmpty { allowedCats }
+            }
+            val nextSubTab = if (mode != TravelMode.CAR && state.activeResultCategoryTab == WayCategory.WANDERUNGEN) {
+                null
+            } else {
+                state.activeResultCategoryTab
+            }
+            val updated = state.copy(
                 travelMode = mode,
-                maxDetourKm = nearbyForMode.defaultDetourKm
+                maxDetourKm = nearbyForMode.defaultDetourKm,
+                selectedCategories = nextSelected,
+                activeResultCategoryTab = nextSubTab,
+                apiReports = updatedReports
             )
+            recomputeDisplayedItems(updated)
         }
-        executeRouteSearch(switchToResultsTab = false, preservePlannedStops = true)
+        // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
     }
 
     fun setShowAllCategories(showAll: Boolean) {
         _uiState.update { state ->
+            val allowed = state.availableCategories.toSet()
             val updated = if (showAll) {
                 state.copy(
                     showAllCategories = true,
-                    selectedCategories = WayCategory.entries.toSet(),
+                    selectedCategories = allowed,
                     activeResultCategoryTab = null
                 )
             } else {
@@ -538,21 +595,22 @@ class SeizeTheWayViewModel(
 
     fun toggleCategory(category: WayCategory) {
         _uiState.update { state ->
+            val allowed = state.availableCategories.toSet()
             val nextSet = if (state.showAllCategories) {
-                setOf(category)
+                setOf(category).intersect(allowed)
             } else {
-                val mutable = state.selectedCategories.toMutableSet()
+                val mutable = state.selectedCategories.intersect(allowed).toMutableSet()
                 if (category in mutable) {
                     mutable.remove(category)
-                } else {
+                } else if (category in allowed) {
                     mutable.add(category)
                 }
                 mutable
             }
-            val nowAll = nextSet.size == WayCategory.entries.size || nextSet.isEmpty()
+            val nowAll = nextSet.size == allowed.size || nextSet.isEmpty()
             val updated = state.copy(
                 showAllCategories = nowAll,
-                selectedCategories = if (nowAll) WayCategory.entries.toSet() else nextSet,
+                selectedCategories = if (nowAll) allowed else nextSet,
                 activeResultCategoryTab = null
             )
             recomputeDisplayedItems(updated)
@@ -614,6 +672,11 @@ class SeizeTheWayViewModel(
     fun applyPreset(preset: RoutePreset) {
         originSuggestJob?.cancel()
         destSuggestJob?.cancel()
+        val allowed = if (preset.travelMode == TravelMode.CAR) {
+            WayCategory.entries.toSet()
+        } else {
+            WayCategory.entries.filter { it != WayCategory.WANDERUNGEN }.toSet()
+        }
         _uiState.update {
             it.copy(
                 originQuery = preset.originName,
@@ -626,20 +689,34 @@ class SeizeTheWayViewModel(
                 travelMode = preset.travelMode,
                 keywordsQuery = "",
                 showAllCategories = true,
-                selectedCategories = WayCategory.entries.toSet(),
+                selectedCategories = allowed,
                 activeResultCategoryTab = null,
                 plannedStopIds = emptySet(),
+                isOptimalMixActive = false,
                 errorMessage = null
             )
         }
-        executeRouteSearch(switchToResultsTab = false)
+        // Suche startet nur noch explizit über den Berechnen-Button (Assistent Schritt 4)
     }
 
     fun togglePlannedStop(itemId: String) {
         _uiState.update { state ->
             val mutable = state.plannedStopIds.toMutableSet()
             if (itemId in mutable) mutable.remove(itemId) else mutable.add(itemId)
-            state.copy(plannedStopIds = mutable)
+            state.copy(
+                plannedStopIds = mutable,
+                isOptimalMixActive = false
+            )
+        }
+        recalculateActiveTrackThroughPlannedStops()
+    }
+
+    fun enableManualStopSelection() {
+        _uiState.update { state ->
+            state.copy(
+                plannedStopIds = emptySet(),
+                isOptimalMixActive = false
+            )
         }
         recalculateActiveTrackThroughPlannedStops()
     }
@@ -650,7 +727,12 @@ class SeizeTheWayViewModel(
             if (pool.isEmpty()) return@update state
 
             val chosen = mutableSetOf<String>()
-            pool.filter { it.category in setOf(WayCategory.NATUR, WayCategory.WANDERUNGEN, WayCategory.KOSTENLOSES) }
+            val firstQuarterCategories = if (state.travelMode == TravelMode.CAR) {
+                setOf(WayCategory.NATUR, WayCategory.WANDERUNGEN, WayCategory.KOSTENLOSES)
+            } else {
+                setOf(WayCategory.NATUR, WayCategory.KOSTENLOSES)
+            }
+            pool.filter { it.category in firstQuarterCategories }
                 .minByOrNull { kotlin.math.abs(it.routeProgressFraction - 0.25f) }
                 ?.let { chosen.add(it.id) }
 
@@ -665,7 +747,10 @@ class SeizeTheWayViewModel(
             pool.firstOrNull { it.category == WayCategory.TAGESEVENTS || WayCategory.TAGESEVENTS in it.additionalCategories }
                 ?.let { chosen.add(it.id) }
 
-            state.copy(plannedStopIds = chosen)
+            state.copy(
+                plannedStopIds = chosen,
+                isOptimalMixActive = true
+            )
         }
         recalculateActiveTrackThroughPlannedStops()
     }
@@ -726,8 +811,10 @@ class SeizeTheWayViewModel(
                 trackPolyline = r.polyline,
                 notes = state.tripNotesDraft
             )
+            val updatedTrips = listOf(newTrip) + state.savedTrips
+            SavedTripsStorage.saveSavedTrips(updatedTrips)
             state.copy(
-                savedTrips = listOf(newTrip) + state.savedTrips,
+                savedTrips = updatedTrips,
                 activeTab = AppTab.TRIPS
             )
         }
@@ -735,7 +822,9 @@ class SeizeTheWayViewModel(
 
     fun deleteSavedTrip(tripId: String) {
         _uiState.update { state ->
-            state.copy(savedTrips = state.savedTrips.filterNot { it.id == tripId })
+            val updatedTrips = state.savedTrips.filterNot { it.id == tripId }
+            SavedTripsStorage.saveSavedTrips(updatedTrips)
+            state.copy(savedTrips = updatedTrips)
         }
     }
 
@@ -841,9 +930,23 @@ class SeizeTheWayViewModel(
 
         searchJob?.cancel()
         searchJob = viewModelScope.launch {
-            _uiState.update { it.copy(isLoading = true, errorMessage = null) }
+            _uiState.update {
+                it.copy(
+                    isLoading = true,
+                    errorMessage = null,
+                    loadingStageDe = "Start & Ziel werden aufgelöst – Route wird berechnet…",
+                    loadingStageEn = "Resolving origin & destination – calculating route…",
+                    loadingFraction = 0.08f,
+                    loadingDoneSources = 0,
+                    loadingTotalSources = 7,
+                    allCorridorItems = if (preservePlannedStops) it.allCorridorItems else emptyList(),
+                    displayedItems = if (preservePlannedStops) it.displayedItems else emptyList(),
+                    activeTab = if (switchToResultsTab) AppTab.DISCOVERIES else it.activeTab
+                )
+            }
+            var switchedToResults = switchToResultsTab
             try {
-                val fetchRadiusKm = snapshot.maxDetourKm.toDouble().coerceAtLeast(18.0)
+                val fetchRadiusKm = snapshot.maxDetourKm.toDouble().coerceAtLeast(1.0)
                 val response = service.searchAlongRoute(
                     originQuery = snapshot.originQuery,
                     destinationQuery = snapshot.destinationQuery,
@@ -854,7 +957,35 @@ class SeizeTheWayViewModel(
                     onlyStrictKeywordMatches = false,
                     travelMode = snapshot.travelMode,
                     apiKeys = snapshot.apiKeys,
-                    originOverride = snapshot.userLocationPoint
+                    originOverride = snapshot.userLocationPoint,
+                    onProgress = { p ->
+                        _uiState.update { cur ->
+                            var next = cur.copy(
+                                loadingStageDe = p.stageDe,
+                                loadingStageEn = p.stageEn,
+                                loadingFraction = p.fraction,
+                                loadingDoneSources = p.doneSources,
+                                loadingTotalSources = p.totalSources
+                            )
+                            val partialItems = p.allItems
+                            val partialRoute = p.route
+                            if (partialItems != null && partialRoute != null && cur.isLoading) {
+                                val merged = (preservedStopsList + partialItems).distinctBy { it.id }
+                                next = next.copy(
+                                    route = partialRoute.copy(corridorRadiusKm = cur.maxDetourKm.toDouble()),
+                                    allCorridorItems = merged,
+                                    activeTab = if (switchToResultsTab && !switchedToResults && partialItems.isNotEmpty()) {
+                                        AppTab.DISCOVERIES
+                                    } else {
+                                        cur.activeTab
+                                    }
+                                )
+                                if (partialItems.isNotEmpty()) switchedToResults = true
+                                next = recomputeDisplayedItems(next)
+                            }
+                            next
+                        }
+                    }
                 )
 
                 val combinedCorridorItems = (preservedStopsList + response.allCorridorItems).distinctBy { it.id }
@@ -887,43 +1018,23 @@ class SeizeTheWayViewModel(
                 }
 
                 _uiState.update { current ->
-                    val initialSavedTrips = if (current.savedTrips.isEmpty() && response.filteredItems.isNotEmpty()) {
-                        listOf(
-                            SavedTrip(
-                                id = "trip_initial_1",
-                                title = "${trackWithStops.origin.name} → ${trackWithStops.destination.name} (${current.travelMode.label})",
-                                dateLabel = "Geplante Wochenend-Tour",
-                                origin = trackWithStops.origin,
-                                destination = trackWithStops.destination,
-                                trackDistanceKm = trackWithStops.distanceKm,
-                                trackDurationMinutes = trackWithStops.durationMinutes,
-                                elevationGainMeters = trackWithStops.elevationGainMeters,
-                                elevationLossMeters = trackWithStops.elevationLossMeters,
-                                maxDetourKm = current.maxDetourKm,
-                                travelMode = current.travelMode,
-                                stops = selectedWaypoints,
-                                trackPolyline = trackWithStops.polyline,
-                                notes = ""
-                            )
-                        )
-                    } else {
-                        current.savedTrips
-                    }
-
                     val withData = current.copy(
                         isLoading = false,
+                        loadingStageDe = null,
+                        loadingStageEn = null,
+                        loadingFraction = 1f,
                         errorMessage = null,
                         route = trackWithStops.copy(corridorRadiusKm = current.maxDetourKm.toDouble()),
                         allCorridorItems = combinedCorridorItems,
                         apiReports = response.apiReports,
                         plannedStopIds = effectiveStopIds,
-                        savedTrips = initialSavedTrips,
+                        savedTrips = current.savedTrips,
                         highlightedMapItemId = if (current.mapDisplayFilter == MapDisplayFilter.IN_TRACK) {
                             selectedWaypoints.firstOrNull()?.id
                         } else {
                             response.filteredItems.firstOrNull()?.id
                         },
-                        activeTab = if (switchToResultsTab) AppTab.DISCOVERIES else current.activeTab
+                        activeTab = if (switchToResultsTab && !switchedToResults) AppTab.DISCOVERIES else current.activeTab
                     )
                     recomputeDisplayedItems(withData)
                 }
@@ -974,10 +1085,19 @@ class SeizeTheWayViewModel(
                 }
             }
             .filter { item ->
+                // Bei Rad oder Wandern wird die Kategorie "Wanderungen" ausgeblendet
+                val allowedCats = state.availableCategories.toSet()
+                if (state.travelMode != TravelMode.CAR &&
+                    item.category == WayCategory.WANDERUNGEN &&
+                    item.additionalCategories.none { it in allowedCats }
+                ) {
+                    return@filter false
+                }
+                val activeSelected = state.selectedCategories.intersect(allowedCats)
                 // Das eingegebene Stichwort wird ZUSÄTZLICH (||) zu den ausgewählten Kategorien gesucht:
                 val catOk = state.showAllCategories ||
-                        item.category in state.selectedCategories ||
-                        item.additionalCategories.any { it in state.selectedCategories }
+                        item.category in activeSelected ||
+                        item.additionalCategories.any { it in activeSelected }
                 val kwOk = keywords.isNotEmpty() && item.matchedKeywords.isNotEmpty()
                 catOk || kwOk
             }

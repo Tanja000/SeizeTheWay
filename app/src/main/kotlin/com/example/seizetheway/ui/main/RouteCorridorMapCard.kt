@@ -6,6 +6,9 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -111,30 +114,43 @@ fun DedicatedMapTabScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Header Row with Route Title & Großansicht Button
-                    Row(
+                    // Header: Überschrift und Nebeninfos ganz oben ausgeschrieben, Buttons darunter
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = travelModeIcon(route.travelMode),
-                                    contentDescription = null,
-                                    tint = Color(0xFF2CE5C6),
-                                    modifier = Modifier.size(18.dp)
-                                )
-                                Spacer(Modifier.width(6.dp))
+                        // 1. Überschrift und Nebeninfos voll ausgeschrieben
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Surface(
+                                    color = Color(0xFF152946),
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            imageVector = travelModeIcon(route.travelMode),
+                                            contentDescription = null,
+                                            tint = Color(0xFF2CE5C6),
+                                            modifier = Modifier.size(17.dp)
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(8.dp))
                                 Text(
                                     text = "${route.origin.name} → ${route.destination.name}",
                                     color = Color.White,
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 15.sp,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 17.sp,
+                                    lineHeight = 22.sp
                                 )
                             }
                             Text(
@@ -144,14 +160,17 @@ fun DedicatedMapTabScreen(
                                     "${route.travelMode.localizedTrackType(appLanguage)} • $inTrackCount ${if (appLanguage.isGerman) "Stopps im Track integriert" else "stops in track"}"
                                 },
                                 color = Color(0xFF2CE5C6),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                                modifier = Modifier.padding(start = 36.dp)
                             )
                         }
 
+                        // 2. Buttons "Tour speichern" und "Großansicht" darunter
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             if (isAlreadySaved) {
                                 FilledTonalButton(
@@ -161,19 +180,22 @@ fun DedicatedMapTabScreen(
                                         disabledContainerColor = Color(0xFF0F2942),
                                         disabledContentColor = Color(0xFF2CE5C6)
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                    modifier = Modifier.height(34.dp)
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.BookmarkAdded,
                                         contentDescription = null,
                                         tint = Color(0xFF2CE5C6),
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                    Spacer(Modifier.width(4.dp))
+                                    Spacer(Modifier.width(6.dp))
                                     Text(
                                         text = if (appLanguage.isGerman) "✓ Gespeichert" else "✓ Saved",
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF2CE5C6),
                                         maxLines = 1,
@@ -181,25 +203,28 @@ fun DedicatedMapTabScreen(
                                     )
                                 }
                             } else {
-                                FilledTonalButton(
+                                Button(
                                     onClick = onOpenSaveDialog,
-                                    colors = ButtonDefaults.filledTonalButtonColors(
+                                    colors = ButtonDefaults.buttonColors(
                                         containerColor = Color(0xFF006B5E),
                                         contentColor = Color.White
                                     ),
-                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                    modifier = Modifier.height(34.dp)
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(38.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.BookmarkAdd,
                                         contentDescription = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
                                         tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
+                                        modifier = Modifier.size(16.dp)
                                     )
-                                    Spacer(Modifier.width(4.dp))
+                                    Spacer(Modifier.width(6.dp))
                                     Text(
                                         text = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
-                                        fontSize = 11.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = FontWeight.Bold,
                                         maxLines = 1,
                                         softWrap = false
@@ -213,19 +238,22 @@ fun DedicatedMapTabScreen(
                                     containerColor = Color(0xFF1E3A5F),
                                     contentColor = Color.White
                                 ),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(38.dp)
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Fullscreen,
                                     contentDescription = if (appLanguage.isGerman) "Großansicht" else "Fullscreen",
                                     tint = Color(0xFF2CE5C6),
-                                    modifier = Modifier.size(17.dp)
+                                    modifier = Modifier.size(18.dp)
                                 )
-                                Spacer(Modifier.width(4.dp))
+                                Spacer(Modifier.width(6.dp))
                                 Text(
                                     text = if (appLanguage.isGerman) "Großansicht" else "Fullscreen",
-                                    fontSize = 11.sp,
+                                    fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     softWrap = false
@@ -247,19 +275,21 @@ fun DedicatedMapTabScreen(
                             .padding(bottom = 10.dp)
                     )
 
-                    // Track Metrics Strip: Distanz (km), Höhenmeter (↑/↓ Hm), Reisedauer & Stopps
-                    TrackMetricsStrip(
-                        distanceKm = route.distanceKm,
-                        elevationGainMeters = route.elevationGainMeters,
-                        elevationLossMeters = route.elevationLossMeters,
-                        durationMinutes = route.durationMinutes,
-                        stopsCount = inTrackCount,
-                        appLanguage = appLanguage,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 12.dp)
-                            .padding(bottom = 10.dp)
-                    )
+                    // Track Metrics Strip: Nur anzeigen, wenn "Im Track" aktiv ist (bezieht sich auf die ausgewählten Stopps)
+                    if (mapDisplayFilter == MapDisplayFilter.IN_TRACK) {
+                        TrackMetricsStrip(
+                            distanceKm = route.distanceKm,
+                            elevationGainMeters = route.elevationGainMeters,
+                            elevationLossMeters = route.elevationLossMeters,
+                            durationMinutes = route.durationMinutes,
+                            stopsCount = inTrackCount,
+                            appLanguage = appLanguage,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp)
+                                .padding(bottom = 10.dp)
+                        )
+                    }
 
                     // Interactive Map Surface with modified Track Polyline & Category Icons
                     InteractiveCorridorMapSurface(
@@ -642,20 +672,35 @@ fun InteractiveCorridorMapSurface(
             )
             .then(
                 if (enableZoomPan) {
-                    Modifier.pointerInput(Unit) {
-                        detectTransformGestures { _, pan, gestureZoom, _ ->
-                            val newZoom = (zoom * gestureZoom).coerceIn(1f, 4.5f)
-                            zoom = newZoom
-                            if (newZoom > 1.01f) {
-                                val maxPanX = size.width * (newZoom - 1f) * 0.55f
-                                val maxPanY = size.height * (newZoom - 1f) * 0.55f
-                                panOffset = Offset(
-                                    x = (panOffset.x + pan.x).coerceIn(-maxPanX, maxPanX),
-                                    y = (panOffset.y + pan.y).coerceIn(-maxPanY, maxPanY)
-                                )
-                            } else {
-                                panOffset = Offset.Zero
-                            }
+                    Modifier.pointerInput(enableZoomPan, zoom) {
+                        awaitEachGesture {
+                            var isTransforming = false
+                            do {
+                                val event = awaitPointerEvent()
+                                val activePointers = event.changes.count { it.pressed }
+                                if (activePointers >= 2 || zoom > 1.05f) {
+                                    isTransforming = true
+                                }
+                                if (isTransforming) {
+                                    val zoomChange = event.calculateZoom()
+                                    val panChange = event.calculatePan()
+                                    if (zoomChange != 1f || panChange != Offset.Zero) {
+                                        val newZoom = (zoom * zoomChange).coerceIn(1f, 4.5f)
+                                        zoom = newZoom
+                                        if (newZoom > 1.01f) {
+                                            val maxPanX = size.width * (newZoom - 1f) * 0.55f
+                                            val maxPanY = size.height * (newZoom - 1f) * 0.55f
+                                            panOffset = Offset(
+                                                x = (panOffset.x + panChange.x).coerceIn(-maxPanX, maxPanX),
+                                                y = (panOffset.y + panChange.y).coerceIn(-maxPanY, maxPanY)
+                                            )
+                                        } else {
+                                            panOffset = Offset.Zero
+                                        }
+                                        event.changes.forEach { it.consume() }
+                                    }
+                                }
+                            } while (event.changes.any { it.pressed })
                         }
                     }
                 } else Modifier
@@ -1009,47 +1054,53 @@ fun FullscreenRouteMapDialog(
             modifier = Modifier.fillMaxSize()
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
-                // Fullscreen Top Bar
-                Row(
+                // Fullscreen Top Header: Überschrift und Nebeninfos ganz oben, Buttons darunter
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(modifier = Modifier.weight(1f)) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(3.dp)
+                    ) {
                         Text(
                             text = "${if (appLanguage.isGerman) "Großansicht" else "Fullscreen"}: ${route.origin.name} → ${route.destination.name}",
                             color = Color.White,
                             fontWeight = FontWeight.ExtraBold,
-                            fontSize = 15.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 16.sp,
+                            lineHeight = 20.sp
                         )
                         Text(
-                            text = "${route.travelMode.localizedTrackType(appLanguage)} • ${if (appLanguage.isGerman) "Klick auf ein Icon springt zur Beschreibung unten" else "Tap an icon to jump to description below"}",
+                            text = "${route.travelMode.localizedTrackType(appLanguage)} • ${if (appLanguage.isGerman) "Tippe auf ein Icon für Details" else "Tap an icon for details"}",
                             color = Color(0xFF2CE5C6),
-                            fontSize = 11.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
+                            fontSize = 11.5.sp
                         )
                     }
 
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
                         FilledTonalButton(
                             onClick = onOpenSaveDialog,
                             colors = ButtonDefaults.filledTonalButtonColors(
                                 containerColor = Color(0xFF006B5E),
                                 contentColor = Color.White
                             ),
+                            shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
                         ) {
                             Icon(Icons.Default.BookmarkAdd, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = if (appLanguage.isGerman) "Tour speichern" else "Save Tour",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1,
                                 softWrap = false
@@ -1062,14 +1113,17 @@ fun FullscreenRouteMapDialog(
                                 containerColor = Color(0xFF2CE5C6),
                                 contentColor = Color(0xFF081224)
                             ),
+                            shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(36.dp)
                         ) {
                             Icon(Icons.Default.Navigation, contentDescription = null, modifier = Modifier.size(15.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = "Google Maps",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 fontWeight = FontWeight.ExtraBold,
                                 maxLines = 1,
                                 softWrap = false
@@ -1082,14 +1136,15 @@ fun FullscreenRouteMapDialog(
                                 containerColor = Color(0xFF1E3A5F),
                                 contentColor = Color.White
                             ),
+                            shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                            modifier = Modifier.height(34.dp)
+                            modifier = Modifier.height(36.dp)
                         ) {
                             Icon(Icons.Default.FullscreenExit, contentDescription = null, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(4.dp))
                             Text(
                                 text = if (appLanguage.isGerman) "Schließen" else "Close",
-                                fontSize = 11.sp,
+                                fontSize = 11.5.sp,
                                 maxLines = 1,
                                 softWrap = false
                             )
@@ -1110,19 +1165,21 @@ fun FullscreenRouteMapDialog(
                         .padding(bottom = 8.dp)
                 )
 
-                // Track Metrics Strip in Fullscreen View
-                TrackMetricsStrip(
-                    distanceKm = route.distanceKm,
-                    elevationGainMeters = route.elevationGainMeters,
-                    elevationLossMeters = route.elevationLossMeters,
-                    durationMinutes = route.durationMinutes,
-                    stopsCount = inTrackCount,
-                    appLanguage = appLanguage,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 12.dp)
-                        .padding(bottom = 8.dp)
-                )
+                // Track Metrics Strip in Fullscreen View: Nur anzeigen, wenn "Im Track" aktiv ist
+                if (mapDisplayFilter == MapDisplayFilter.IN_TRACK) {
+                    TrackMetricsStrip(
+                        distanceKm = route.distanceKm,
+                        elevationGainMeters = route.elevationGainMeters,
+                        elevationLossMeters = route.elevationLossMeters,
+                        durationMinutes = route.durationMinutes,
+                        stopsCount = inTrackCount,
+                        appLanguage = appLanguage,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp)
+                            .padding(bottom = 8.dp)
+                    )
+                }
 
                 // Interactive Map with Category Icon Pins
                 InteractiveCorridorMapSurface(

@@ -4,6 +4,8 @@ import com.example.seizetheway.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -20,6 +22,20 @@ data class DiscoverySearchResponse(
     val allCorridorItems: List<RouteDiscoveryItem>,
     val filteredItems: List<RouteDiscoveryItem>,
     val apiReports: List<ApiStatusReport>
+)
+
+/**
+ * Zwischenstand einer laufenden Suche: erlaubt, schon das erste Ergebnis anzuzeigen,
+ * während weitere Quellen noch nachgeladen werden.
+ */
+data class SearchProgress(
+    val stageDe: String,
+    val stageEn: String,
+    val fraction: Float,
+    val route: RouteResult? = null,
+    val allItems: List<RouteDiscoveryItem>? = null,
+    val doneSources: Int = 0,
+    val totalSources: Int = 7
 )
 
 class RouteDiscoveryService {
@@ -564,6 +580,81 @@ class RouteDiscoveryService {
             }
         }
 
+        // 1b. Spezielle Rad- & Wanderwege (OSM-Daten via BRouter): bevorzugt ausgewiesene Radrouten,
+        // Radwege, Wirtschaftswege bzw. Wanderwege/Pfade statt Straßen.
+        if (travelMode != TravelMode.CAR) {
+            val startBr = System.currentTimeMillis()
+            val brouterProfiles = if (travelMode == TravelMode.BIKE) {
+                listOf("trekking", "fastbike")
+            } else {
+                listOf("hiking-mountain", "hiking-beta")
+            }
+            val lonLats = allNodes.joinToString("|") {
+                String.format(java.util.Locale.US, "%.5f,%.5f", it.lon, it.lat)
+            }
+            for (profile in brouterProfiles) {
+                try {
+                    val url = "https://brouter.de/brouter?lonlats=$lonLats&profile=$profile&alternativeidx=0&format=geojson"
+                    val response = httpGet(url, timeoutMs = 20000)
+                    val features = JSONObject(response).optJSONArray("features") ?: continue
+                    if (features.length() == 0) continue
+                    val feat = features.getJSONObject(0)
+                    val coords = feat.getJSONObject("geometry").getJSONArray("coordinates")
+                    if (coords.length() < 2) continue
+                    val poly = ArrayList<GeoPoint>(coords.length())
+                    val eles = ArrayList<Double>(coords.length())
+                    for (i in 0 until coords.length()) {
+                        val c = coords.getJSONArray(i)
+                        poly.add(GeoPoint(c.getDouble(1), c.getDouble(0)))
+                        if (c.length() > 2) eles.add(c.optDouble(2, Double.NaN))
+                    }
+                    val props = feat.optJSONObject("properties")
+                    val distKm = (props?.optString("track-length")?.toDoubleOrNull() ?: 0.0) / 1000.0
+                    if (distKm <= 0.0) continue
+                    val validEles = eles.filter { !it.isNaN() }
+                    val gain = props?.optString("filtered ascend")?.toDoubleOrNull()?.roundToInt()
+                        ?: props?.optString("plain-ascend")?.toDoubleOrNull()?.roundToInt()
+                        ?: 0
+                    val net = if (validEles.size >= 2) validEles.last() - validEles.first() else 0.0
+                    val loss = (gain - net).roundToInt().coerceAtLeast(0)
+                    val minEle = validEles.minOrNull()?.roundToInt() ?: 500
+                    val maxEle = validEles.maxOrNull()?.roundToInt() ?: 750
+                    val downsampled = downsamplePolyline(poly, 220)
+                    val durMin = GeoMath.estimateDurationMinutes(distKm, gain, travelMode)
+                    val label = if (travelMode == TravelMode.BIKE) "Radwege & Radrouten (OSM)" else "Wanderwege & Pfade (OSM)"
+
+                    reports.add(
+                        ApiStatusReport(
+                            source = ApiSource.OSRM,
+                            active = true,
+                            resultsCount = downsampled.size,
+                            statusMessage = "$label: ${String.format("%.1f", distKm)} km • ↑$gain Hm • ${waypoints.size} Stopps integriert",
+                            latencyMs = System.currentTimeMillis() - startBr
+                        )
+                    )
+                    return@withContext RouteResult(
+                        origin = origin,
+                        destination = destination,
+                        basePolyline = baseRoute?.basePolyline ?: downsampled,
+                        polyline = downsampled,
+                        baseDistanceKm = baseRoute?.baseDistanceKm ?: distKm,
+                        distanceKm = distKm,
+                        baseDurationMinutes = baseRoute?.baseDurationMinutes ?: durMin,
+                        durationMinutes = durMin,
+                        elevationGainMeters = gain,
+                        elevationLossMeters = loss,
+                        minElevationMeters = minEle,
+                        maxElevationMeters = maxEle,
+                        routingEngineUsed = "$label · BRouter/$profile",
+                        corridorRadiusKm = corridorRadiusKm,
+                        travelMode = travelMode,
+                        includedWaypoints = waypoints
+                    ) to reports
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         // 2. Try Dedicated OSM Mode Routing Server first (routed-car, routed-bike, routed-foot), then global OSRM
         val routingUrls = listOf(
             "${travelMode.osmRoutingServer}/$coordsString?overview=full&geometries=geojson",
@@ -745,7 +836,8 @@ class RouteDiscoveryService {
         onlyStrictKeywordMatches: Boolean,
         travelMode: TravelMode,
         apiKeys: ApiKeysConfig,
-        originOverride: GeoPoint? = null
+        originOverride: GeoPoint? = null,
+        onProgress: suspend (SearchProgress) -> Unit = {}
     ): DiscoverySearchResponse = coroutineScope {
         val effectiveCategories = if (showAllCategories || selectedCategories.isEmpty()) {
             WayCategory.entries.toSet()
@@ -782,6 +874,13 @@ class RouteDiscoveryService {
             resultsCount = 2,
             statusMessage = "${originPt.name} → ${destPt.name} aufgelöst",
             latencyMs = max(originReport.latencyMs, destReport.latencyMs)
+        )
+        onProgress(
+            SearchProgress(
+                stageDe = "Orte gefunden – Route wird berechnet…",
+                stageEn = "Places found – calculating route…",
+                fraction = 0.12f
+            )
         )
 
         // Step 2: Compute Base Track for the selected TravelMode (Auto, Radfahren, Wandern)
@@ -858,6 +957,82 @@ class RouteDiscoveryService {
             )
         }
 
+        // Progressive Ausgabe: Jede Quelle meldet ihre Treffer sofort übersetzt, sobald sie fertig ist.
+        val totalSources = 7
+        val collectedTranslated = mutableListOf<RouteDiscoveryItem>()
+        val publishMutex = kotlinx.coroutines.sync.Mutex()
+        var doneSources = 0
+
+        fun filterToCorridor(raw: List<RouteDiscoveryItem>): List<RouteDiscoveryItem> {
+            return raw
+                .filter { it.detourDistanceKm <= maxDetourKm + 0.05 }
+                .filter { item ->
+                    GeoMath.haversineKm(item.point, baseRoute.origin) >= 0.8 &&
+                            GeoMath.haversineKm(item.point, baseRoute.destination) >= 0.8
+                }
+        }
+
+        fun mergeAndSort(items: List<RouteDiscoveryItem>): List<RouteDiscoveryItem> {
+            return deduplicateDiscoveries(items)
+                .map { enrichKeywordMatches(it, keywords) }
+                .sortedWith(
+                    compareByDescending<RouteDiscoveryItem> { it.matchedKeywords.size }
+                        .thenBy { it.routeProgressFraction }
+                )
+        }
+
+        // Schritt 2 fertig: Route ist berechnet, jetzt starten die Korridor-Quellen
+        val initialCurated = GermanTranslator.translateItemsBatch(
+            filterToCorridor(CuratedCorridorCatalog.getCorridorHighlights(route = baseRoute, maxDetourKm = maxDetourKm))
+        )
+        publishMutex.withLock {
+            collectedTranslated.addAll(initialCurated)
+            onProgress(
+                SearchProgress(
+                    stageDe = "Track berechnet (${String.format("%.0f", baseRoute.distanceKm)} km) – durchsuche OSM, Wikipedia & Events (±${maxDetourKm.roundToInt()} km)…",
+                    stageEn = "Track calculated (${String.format("%.0f", baseRoute.distanceKm)} km) – querying OSM, Wikipedia & Events (±${maxDetourKm.roundToInt()} km)…",
+                    fraction = 0.25f,
+                    route = baseRoute,
+                    allItems = mergeAndSort(collectedTranslated.toList()),
+                    doneSources = 0,
+                    totalSources = totalSources
+                )
+            )
+        }
+
+        suspend fun publish(stageDe: String, stageEn: String, rawItems: List<RouteDiscoveryItem>) {
+            val corridorFiltered = filterToCorridor(rawItems)
+            val translatedBatch = if (corridorFiltered.isNotEmpty()) {
+                GermanTranslator.translateItemsBatch(corridorFiltered)
+            } else {
+                emptyList()
+            }
+            publishMutex.withLock {
+                collectedTranslated.addAll(translatedBatch)
+                doneSources++
+                val snapshotItems = mergeAndSort(collectedTranslated.toList())
+                onProgress(
+                    SearchProgress(
+                        stageDe = "$stageDe ($doneSources/$totalSources Quellen fertig)",
+                        stageEn = "$stageEn ($doneSources/$totalSources sources done)",
+                        fraction = 0.25f + 0.70f * doneSources / totalSources,
+                        route = baseRoute,
+                        allItems = snapshotItems,
+                        doneSources = doneSources,
+                        totalSources = totalSources
+                    )
+                )
+            }
+        }
+
+        val j1 = launch { publish("OpenStreetMap (Overpass) ausgewertet", "OpenStreetMap (Overpass) processed", overpassDeferred.await().first) }
+        val j2 = launch { publish("OSM Photon-Orte ausgewertet", "OSM Photon places processed", photonOsmDeferred.await()) }
+        val j3 = launch { publish("Wikipedia-Sehenswürdigkeiten ausgewertet", "Wikipedia sights processed", wikiDeferred.await().first) }
+        val j4 = launch { publish("Tourismus- & Naturziele ausgewertet", "Tourism & nature spots processed", geoapifyDeferred.await().first) }
+        val j5 = launch { publish("Ticketmaster-Events ausgewertet", "Ticketmaster events processed", ticketmasterDeferred.await().first) }
+        val j6 = launch { publish("Eventbrite-Events ausgewertet", "Eventbrite events processed", eventbriteDeferred.await().first) }
+        val j7 = launch { publish("Weltweite Wikidata-Events ausgewertet", "Worldwide Wikidata events processed", wikidataEventsDeferred.await().first) }
+
         val (overpassItems, overpassReport) = overpassDeferred.await()
         val photonOsmItems = photonOsmDeferred.await()
         val (wikiItems, wikiReport) = wikiDeferred.await()
@@ -865,6 +1040,7 @@ class RouteDiscoveryService {
         val (tmItems, tmReport) = ticketmasterDeferred.await()
         val (ebItems, ebReport) = eventbriteDeferred.await()
         val (wdEvents, wdReport) = wikidataEventsDeferred.await()
+        j1.join(); j2.join(); j3.join(); j4.join(); j5.join(); j6.join(); j7.join()
 
         val combinedOsmItems = overpassItems + photonOsmItems
         val mergedOverpassReport = overpassReport.copy(
@@ -873,31 +1049,7 @@ class RouteDiscoveryService {
             statusMessage = "OpenStreetMap (Overpass & Photon): ${combinedOsmItems.size} POIs mit erweiterten OSM-Keys im ${maxDetourKm.roundToInt()}-km-Korridor geladen"
         )
 
-        // Step 5: Curated & Corridor-Synthesized highlights
-        val curatedCorridorItems = CuratedCorridorCatalog.getCorridorHighlights(
-            route = baseRoute,
-            maxDetourKm = maxDetourKm
-        )
-
-        // Step 6: Merge, deduplicate, and enforce detourDistanceKm <= maxDetourKm
-        val mergedRaw = (combinedOsmItems + wikiItems + wdEvents + geoItems + tmItems + ebItems + curatedCorridorItems)
-            .filter { it.detourDistanceKm <= maxDetourKm + 0.05 }
-            .filter { item ->
-                // Start- und Zielort selbst sind keine Zwischenstopps im Korridor
-                val distOrigin = GeoMath.haversineKm(item.point, baseRoute.origin)
-                val distDest = GeoMath.haversineKm(item.point, baseRoute.destination)
-                distOrigin >= 0.8 && distDest >= 0.8
-            }
-
-        val deduplicated = deduplicateDiscoveries(mergedRaw)
-
-        // Parallele bidirektionale Übersetzung (DE & EN) aller Ergebnisse aus Wikipedia, OSM, Wikidata etc.
-        val translatedDeduplicated = GermanTranslator.translateItemsBatch(deduplicated)
-            .map { item -> enrichKeywordMatches(item, keywords) }
-            .sortedWith(
-                compareByDescending<RouteDiscoveryItem> { it.matchedKeywords.size }
-                    .thenBy { it.routeProgressFraction }
-            )
+        val translatedDeduplicated = mergeAndSort(collectedTranslated.toList())
 
         // Step 7: Apply Category + Keyword filters:
         // Das eingegebene Stichwort wird ZUSÄTZLICH (ODER-Verknüpfung) zu den ausgewählten Kategorien gesucht!
